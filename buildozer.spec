@@ -10,12 +10,16 @@ version = 0.2.0
 # python-for-android собирает hostpython3 3.14.2.
 # pygame-ce 2.5.8 собирается с Python 3.14.
 requirements = python3==3.14.2,hostpython3==3.14.2,pygame-ce==2.5.8
+p4a.local_recipes = ./p4a-recipes
 
 orientation = landscape
 fullscreen = 1
 android.api = 33
-android.minapi = 21
-android.ndk = 25b
+# Python 3.14 вызывает pwritev, его нет в NDK API ниже 24.
+android.minapi = 24
+# Версия, которую рекомендует текущий python-for-android.
+# r25b на Ubuntu 24 (раннер GitHub) ломает clang.
+android.ndk = 28c
 android.accept_sdk_license = True
 
 # Разрешения (для сохранения сейвов)
