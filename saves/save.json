@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "galaxy_seed": 12345,
+  "galaxy_total": 20,
+  "current_sector": 0,
+  "visited_sector_indices": [
+    0
+  ],
+  "game_time": 17.779999999999966,
+  "time_scale_index": 0,
+  "ship_pos": [
+    1517.2996840804806,
+    2088.230754199052
+  ],
+  "ship_heading": 1.8184909081810736,
+  "systems": {
+    "money": 50000000.0,
+    "fuel": 93.27400000000034,
+    "o2": 100.0,
+    "o2_reserve": 100.0,
+    "current_shield": 0.0,
+    "ship_type": "drifter",
+    "is_wanted": false,
+    "systems": {
+      "engine": {
+        "id": "engine",
+        "hp_bonus": 0.0,
+        "slots": [
+          {
+            "part_id": "pipe_m",
+            "hp": 98.31850000000001
+          },
+          {
+            "part_id": "gear_m",
+            "hp": 99.15924999999979
+          },
+          {
+            "part_id": "bearing_m",
+            "hp": 98.87900000000003
+          }
+        ]
+      },
+      "reactor": {
+        "id": "reactor",
+        "hp_bonus": 0.0,
+        "slots": [
+          {
+            "part_id": "cell_n",
+            "hp": 99.11100000000042
+          },
+          {
+            "part_id": "rod_n",
+            "hp": 99.28880000000089
+          },
+          {
+            "part_id": "cable_e",
+            "hp": 98.2220000000007
+          }
+        ]
+      },
+      "o2gen": {
+        "id": "o2gen",
+        "hp_bonus": 0.0,
+        "slots": [
+          {
+            "part_id": "board_e",
+            "hp": 98.57759999999904
+          },
+          {
+            "part_id": "spark_n",
+            "hp": 98.2220000000007
+          },
+          {
+            "part_id": "filter_l",
+            "hp": 98.93320000000035
+          }
+        ]
+      },
+      "hull": {
+        "id": "hull",
+        "hp_bonus": 0.0,
+        "slots": [
+          {
+            "part_id": "scanner_h",
+            "hp": 28.0
+          },
+          {
+            "part_id": "sealant_h",
+            "hp": 100.0
+          },
+          {
+            "part_id": "bottle_l",
+            "hp": 100.0
+          }
+        ]
+      },
+      "weapon": {
+        "id": "weapon",
+        "hp_bonus": 0.0,
+        "slots": [
+          {
+            "part_id": "laser_w",
+            "hp": 100.0
+          }
+        ]
+      },
+      "shield": {
+        "id": "shield",
+        "hp_bonus": 0.0,
+        "slots": [
+          null
+        ]
+      }
+    },
+    "inventory": [],
+    "active_contracts": [],
+    "total_earned": 0,
+    "contracts_completed": 0,
+    "accident_timer": 17.779999999999966,
+    "accident_cooldown": 130.17191071908988,
+    "story": {
+      "active": {},
+      "completed": []
+    },
+    "quest_cargo": {},
+    "scrap": {
+      "scrap_plate": 1,
+      "scrap_metal": 1,
+      "scrap_wire": 1,
+      "scrap_chip": 2
+    },
+    "valuables": {}
+  },
+  "stations_by_sector": {
+    "0": {
+      "stations": [
+        {
+          "pos": [
+            541,
+            1723
+          ],
+          "name": "База Сириус",
+          "radius": 40,
+          "contracts": [],
+          "contracts_generated_time": 0.0,
+          "contracts_ever_generated": false
+        },
+        {
+          "pos": [
+            2009,
+            1293
+          ],
+          "name": "Порт Гелиос",
+          "radius": 40,
+          "contracts": [],
+          "contracts_generated_time": 0.0,
+          "contracts_ever_generated": false
+        },
+        {
+          "pos": [
+            1606,
+            2818
+          ],
+          "name": "База Ганимед",
+          "radius": 40,
+          "contracts": [],
+          "contracts_generated_time": 0.0,
+          "contracts_ever_generated": false
+        }
+      ]
+    }
+  }
+}

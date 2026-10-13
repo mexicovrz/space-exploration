@@ -1,0 +1,41 @@
+### START main.py
+### before imports
+### stdlib OK
+### pygame OK
+### data OK
+### ui OK
+### combat OK
+### ship OK
+### screens OK
+### story OK
+### world OK
+### galaxy OK
+### save OK
+### before pygame.init
+### pygame.init OK
+### display mode OK
+### ui scale OK, 2560x1600
+### display setup OK
+### bind_pygame OK
+### before state init
+### state OK
+### before galaxy graph
+### galaxy graph OK
+### before load sector
+### sector loaded
+### before ship/systems
+### ship/systems OK
+### before buttons
+### buttons OK
+### calling main()
+### main() entered
+### before start menu
+### has_save = True
+### start menu created
+### start menu exited
+### entering main loop
+### signal spawn check: tier=1, existing=0
+### signal roll: 0.05 vs chance 0.3
+### signal spawn check: tier=1, existing=1
+### signal roll: 0.88 vs chance 0.3
+### unlucky, no signal
