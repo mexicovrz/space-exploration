@@ -1,0 +1,19 @@
+# Сейвы
+saves/
+*.json
+
+# Логи
+startup_log.txt
+story_log.txt
+screen_log.txt
+combat_log.txt
+error_log.txt
+
+# Кэш Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
