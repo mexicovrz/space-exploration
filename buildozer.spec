@@ -6,8 +6,10 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,json
 version = 0.2.0
 
-# ⚠️ ВАЖНО: Python 3.10 для совместимости с Pygame
-requirements = python3==3.10.10, pygame-ce==2.5.5
+# python3 и hostpython3 должны быть одной версии: текущий
+# python-for-android собирает hostpython3 3.14.2.
+# pygame-ce 2.5.8 собирается с Python 3.14.
+requirements = python3==3.14.2,hostpython3==3.14.2,pygame-ce==2.5.8
 
 orientation = landscape
 fullscreen = 1
