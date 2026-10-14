@@ -45,14 +45,16 @@ class PygameCERecipe(CompiledComponentsPythonRecipe):
             # native Meson build and try to execute an Android sanity-check
             # binary on the Linux build host. Use pygame-ce's setuptools
             # setup.py implementation, which supports the Android Setup file
-            # generated below.
+            # generated below. Its local buildconfig imports require the
+            # __legacy__ backend, which adds the source directory to sys.path
+            # and sets sys.argv[0] to setup.py during PEP 517 hooks.
             with open("pyproject.toml", encoding="utf-8") as pyproject:
                 pyproject_contents = pyproject.read()
             pyproject_contents, replacements = subn(
                 r"^\[build-system\]\n.*?(?=^\[)",
                 "[build-system]\n"
                 'requires = ["setuptools", "Cython>=3.0,<=3.2.9"]\n'
-                'build-backend = "setuptools.build_meta"\n\n',
+                'build-backend = "setuptools.build_meta:__legacy__"\n\n',
                 pyproject_contents,
                 count=1,
                 flags=MULTILINE | DOTALL,
