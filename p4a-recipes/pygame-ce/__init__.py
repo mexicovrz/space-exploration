@@ -27,6 +27,11 @@ class PygameCERecipe(CompiledComponentsPythonRecipe):
         "jpeg",
         "png",
     ]
+    # CompiledComponentsPythonRecipe builds with p4a's isolated hostpython,
+    # not the Python used to launch Buildozer. pygame-ce imports Cython from
+    # setup.py, so installing Cython only in the GitHub Actions environment is
+    # insufficient.
+    hostpython_prerequisites = ["setuptools", "Cython>=3.0"]
     call_hostpython_via_targetpython = False
     install_in_hostpython = False
 
