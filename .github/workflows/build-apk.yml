@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Android APK
@@ -53,12 +56,17 @@ jobs:
       - name: Build with Buildozer
         run: |
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-          yes | buildozer android debug > buildozer_full.log 2>&1 || true
+          set +e
+          yes | buildozer android debug > buildozer_full.log 2>&1
+          build_status=${PIPESTATUS[1]}
+          set -e
           echo "===== ПОСЛЕДНИЕ 100 СТРОК ЛОГА ====="
           tail -n 100 buildozer_full.log
           echo "===== СТРОКИ С ОШИБКАМИ ====="
           grep -i -E "error|failed|traceback|exception" buildozer_full.log | tail -n 50 || true
           echo "===== КОНЕЦ ====="
+
+          exit "$build_status"
 
       - name: Show only errors
         if: failure()
@@ -67,22 +75,32 @@ jobs:
           grep -n -i -E "error|failed|traceback" buildozer_full.log | tail -n 30
           echo "=== END ==="
 
-      - name: Check if APK was built
-        id: check_apk
+      - name: Read application version
+        id: app
         run: |
-          if ls bin/*.apk 1> /dev/null 2>&1; then
-            echo "apk_found=true" >> $GITHUB_OUTPUT
-          else
-            echo "apk_found=false" >> $GITHUB_OUTPUT
-          fi
+          version=$(sed -n 's/^version[[:space:]]*=[[:space:]]*//p' buildozer.spec | head -n 1)
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK artifact
-        if: steps.check_apk.outputs.apk_found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: space-exploration-apk
           path: bin/*.apk
           if-no-files-found: error
+
+      - name: Publish APK to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_VERSION: ${{ steps.app.outputs.version }}
+        run: |
+          release_tag="android-v${APP_VERSION}-build.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          gh release create "$release_tag" bin/*.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Space Exploration v${APP_VERSION} (build ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT})" \
+            --generate-notes \
+            --prerelease
 
       - name: Upload full log (если упало)
         if: failure()
