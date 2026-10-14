@@ -1,4 +1,5 @@
 from os.path import join
+from re import DOTALL, MULTILINE, subn
 
 from pythonforandroid.recipe import CompiledComponentsPythonRecipe
 from pythonforandroid.toolchain import current_directory
@@ -45,12 +46,21 @@ class PygameCERecipe(CompiledComponentsPythonRecipe):
             # binary on the Linux build host. Use pygame-ce's setuptools
             # setup.py implementation, which supports the Android Setup file
             # generated below.
+            with open("pyproject.toml", encoding="utf-8") as pyproject:
+                pyproject_contents = pyproject.read()
+            pyproject_contents, replacements = subn(
+                r"^\[build-system\]\n.*?(?=^\[)",
+                "[build-system]\n"
+                'requires = ["setuptools", "Cython>=3.0,<=3.2.9"]\n'
+                'build-backend = "setuptools.build_meta"\n\n',
+                pyproject_contents,
+                count=1,
+                flags=MULTILINE | DOTALL,
+            )
+            if replacements != 1:
+                raise ValueError("pygame-ce pyproject.toml has no build-system block")
             with open("pyproject.toml", "w", encoding="utf-8") as pyproject:
-                pyproject.write(
-                    "[build-system]\n"
-                    'requires = ["setuptools", "Cython>=3.0,<=3.2.9"]\n'
-                    'build-backend = "setuptools.build_meta"\n'
-                )
+                pyproject.write(pyproject_contents)
 
             setup_template = open(join("buildconfig", "Setup.Android.SDL2.in")).read()
 
