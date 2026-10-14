@@ -31,13 +31,27 @@ class PygameCERecipe(CompiledComponentsPythonRecipe):
     # not the Python used to launch Buildozer. pygame-ce imports Cython from
     # setup.py, so installing Cython only in the GitHub Actions environment is
     # insufficient.
-    hostpython_prerequisites = ["setuptools", "Cython>=3.0"]
+    hostpython_prerequisites = ["setuptools", "Cython>=3.0,<=3.2.9"]
     call_hostpython_via_targetpython = False
     install_in_hostpython = False
 
     def prebuild_arch(self, arch):
         super().prebuild_arch(arch)
         with current_directory(self.get_build_dir(arch.arch)):
+            # pygame-ce uses Meson for normal wheel builds. p4a's
+            # CompiledComponentsPythonRecipe later runs ``pip install .``;
+            # leaving the upstream backend enabled makes that command start a
+            # native Meson build and try to execute an Android sanity-check
+            # binary on the Linux build host. Use pygame-ce's setuptools
+            # setup.py implementation, which supports the Android Setup file
+            # generated below.
+            with open("pyproject.toml", "w", encoding="utf-8") as pyproject:
+                pyproject.write(
+                    "[build-system]\n"
+                    'requires = ["setuptools", "Cython>=3.0,<=3.2.9"]\n'
+                    'build-backend = "setuptools.build_meta"\n'
+                )
+
             setup_template = open(join("buildconfig", "Setup.Android.SDL2.in")).read()
 
             png = self.get_recipe("png", self.ctx)
