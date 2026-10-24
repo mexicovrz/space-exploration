@@ -10,7 +10,7 @@ from data import (FUEL_MAX, FUEL_BURN_PER_SEC,
                   INVENTORY_MAX_WEIGHT,
                   ACCIDENT_DAMAGE_MIN, ACCIDENT_DAMAGE_MAX,
                   ACCIDENT_COOLDOWN_MIN, ACCIDENT_COOLDOWN_MAX,
-                  START_MONEY, START_FUEL, START_O2, clamp)
+                  START_MONEY, START_FUEL, START_O2, clamp, MISSILE_PARAMS, AMMO_BY_ID)
 from ships_data import SHIPS_BY_ID, STARTING_SHIP_ID
 from data import SCRAP_BY_ID, VALUABLES_BY_ID
 
@@ -173,6 +173,12 @@ class ShipSystems:
         # Хлам и трофеи (лут с пиратов)
         self.scrap = {}        # {scrap_id: количество}
         self.valuables = {}    # {valuable_id: количество}
+        
+        # Боеприпасы
+        self.ammo = {}   # {ammo_id: count}
+
+        # Заряженная ракета в пусковой установке: (ammo_id, damage, speed) или None
+        self.loaded_missile = None
 
         # Тип корабля
         self.ship_type = STARTING_SHIP_ID
@@ -221,7 +227,105 @@ class ShipSystems:
         self.effects = {}
         self.recompute_effects()
 
+    def load_missile(self, ammo_id):
+        from data import AMMO_BY_ID, MISSILE_PARAMS
+        if ammo_id not in AMMO_BY_ID:
+            return False
+        if self.ammo.get(ammo_id, 0) <= 0:
+            return False
+        if not self.has_launcher:
+            return False
+        if self.loaded_missile is not None:
+            return False
+        self.ammo[ammo_id] -= 1
+        if self.ammo[ammo_id] <= 0:
+            self.ammo.pop(ammo_id, None)
+        params = MISSILE_PARAMS.get(ammo_id, {"damage": 40.0, "speed": 400.0})
+        self.loaded_missile = (ammo_id, params["damage"], params["speed"])
+        return True
+
+    def unload_missile(self):
+        """Выгружает ракету обратно в трюм. Возвращает True/False."""
+        if self.loaded_missile is None:
+            return False
+        ammo_id, _, _ = self.loaded_missile
+        self.ammo[ammo_id] = self.ammo.get(ammo_id, 0) + 1
+        self.loaded_missile = None
+        return True
+
+    def fire_loaded_missile(self):
+        """Возвращает (ammo_id, damage, speed) и обнуляет loaded_missile.
+        Или None, если не заряжено."""
+        if self.loaded_missile is None:
+            return None
+        result = self.loaded_missile
+        self.loaded_missile = None
+        return result
+
+    @property
+    def missile_rate(self):
+        """Кулдаун ракет. 4 сек базовый, MK2 быстрее."""
+        w = self.systems.get("weapon", None)
+        if w is None:
+            return 4.0
+        for slot in w.slots:
+            if slot.part is None or slot.part.is_broken():
+                continue
+            effects = slot.part.info.get("effects", {})
+            if effects.get("is_launcher"):
+                bonus = effects.get("missile_rate_bonus", 0.0)
+                return 4.0 * (1.0 - bonus)
+        return 4.0
+
+    @property
+    def missile_damage(self):
+        """Урон ракеты (фиксированный)."""
+        return 40.0
+
+    @property
+    def has_launcher(self):
+        """Есть ли рабочая пусковая установка?"""
+        w = self.systems.get("weapon", None)
+        if w is None:
+            return False
+        for slot in w.slots:
+            if slot.part is None or slot.part.is_broken():
+                continue
+            effects = slot.part.info.get("effects", {})
+            if effects.get("is_launcher"):
+                return True
+        return False
+
     # ---------- Ресурсы ----------
+
+    def add_ammo(self, ammo_id, count=1):
+        if ammo_id not in AMMO_BY_ID:
+            return False
+        self.ammo[ammo_id] = self.ammo.get(ammo_id, 0) + count
+        return True
+
+    def ammo_count(self, ammo_id="missile_ammo"):
+        return self.ammo.get(ammo_id, 0)
+
+    def ammo_weight(self):
+        from data import AMMO_BY_ID
+        total = 0.0
+        for aid, cnt in self.ammo.items():
+            info = AMMO_BY_ID.get(aid)
+            if info:
+                total += info["weight"] * cnt
+        return total
+
+    def take_ammo(self, ammo_id="missile_ammo", count=1):
+        have = self.ammo.get(ammo_id, 0)
+        if have < count:
+            return False
+        left = have - count
+        if left <= 0:
+            self.ammo.pop(ammo_id, None)
+        else:
+            self.ammo[ammo_id] = left
+        return True
 
     def consume_fuel(self, amount):
         self.fuel = clamp(self.fuel - amount, 0.0, FUEL_MAX)
@@ -410,7 +514,8 @@ class ShipSystems:
                 + self.cargo_weight()
                 + self.quest_cargo_weight()
                 + self.scrap_weight()
-                + self.valuables_weight())
+                + self.valuables_weight()
+                + self.ammo_weight())
 
     def can_add_cargo(self, weight):
         return self.total_weight() + weight <= self.cargo_max

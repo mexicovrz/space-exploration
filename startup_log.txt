@@ -35,7 +35,26 @@
 ### start menu exited
 ### entering main loop
 ### signal spawn check: tier=1, existing=0
-### signal roll: 0.05 vs chance 0.3
-### signal spawn check: tier=1, existing=1
-### signal roll: 0.88 vs chance 0.3
+### signal roll: 0.49 vs chance 0.3
 ### unlucky, no signal
+### EXCEPTION in main()
+Traceback (most recent call last):
+  File "/storage/emulated/0/python/space exploration/main.py", line 1776, in <module>
+    main()
+    ~~~~^^
+  File "/storage/emulated/0/python/space exploration/main.py", line 1668, in main
+    b.handle_event(event)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/storage/emulated/0/python/space exploration/ui.py", line 36, in handle_event
+    self.callback()
+    ~~~~~~~~~~~~~^^
+  File "/storage/emulated/0/python/space exploration/main.py", line 236, in open_load_missile
+    load_missile_screen = LoadMissileScreen(
+        systems, on_close=close_load_missile, state_ref=state)
+  File "/storage/emulated/0/python/space exploration/screens.py", line 2625, in __init__
+    self._build_buttons()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File "/storage/emulated/0/python/space exploration/screens.py", line 2635, in _build_buttons
+    for i, row in enumerate(AMMO_DEF):
+                            ^^^^^^^^
+NameError: name 'AMMO_DEF' is not defined

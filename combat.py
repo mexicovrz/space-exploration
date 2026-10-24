@@ -70,21 +70,17 @@ def angle_diff(a, b):
     return (b - a + math.pi) % (2 * math.pi) - math.pi
 
 
-def can_hit(shooter_pos, shooter_heading, target_pos, radius, arc=math.pi / 4):
-    """Проверяет, в радиусе и угле ли цель.
+def can_hit(shooter_pos, shooter_heading, target_pos, radius, arc=None):
+    """Проверяет, в радиусе ли цель. Угол больше не важен.
 
-    arc = π/4 = ±45° (общий угол 90°).
+    arc оставлен для совместимости с другими вызовами, но игнорируется.
     """
     dx = target_pos[0] - shooter_pos[0]
     dy = target_pos[1] - shooter_pos[1]
     dist = math.hypot(dx, dy)
     if dist > radius:
         return False, dist
-    if dist < 1:
-        return True, dist
-    angle = math.atan2(dy, dx)
-    diff = abs(angle_diff(shooter_heading, angle))
-    return diff <= arc, dist
+    return True, dist
 
 
 # ============================================================
@@ -571,3 +567,87 @@ def has_scanner(ship_systems):
         if tier > 0:
             return tier
     return 0
+    
+# ============================================================
+#                    MISSILE (РАКЕТА)
+# ============================================================
+
+class Missile:
+    """Самонаводящаяся ракета."""
+
+    def __init__(self, pos, target, damage, speed=400.0):
+        self.pos = [pos[0], pos[1]]
+        self.target = target
+        self.damage = damage
+        self.speed = speed
+        self.life = 15.0
+        self.direction = 0.0
+        self.dead = False
+
+    def update(self, dt):
+        if self.target is None or getattr(self.target, "dead", False):
+            self.dead = True
+            return False
+
+        dx = self.target.pos[0] - self.pos[0]
+        dy = self.target.pos[1] - self.pos[1]
+        dist = math.hypot(dx, dy)
+        if dist < 20:
+            if hasattr(self.target, "take_damage"):
+                self.target.take_damage(self.damage)
+            self.dead = True
+            return False
+
+        desired = math.atan2(dy, dx)
+        diff = (desired - self.direction + math.pi) % (2 * math.pi) - math.pi
+        turn_speed = 3.0
+        if abs(diff) <= turn_speed * dt:
+            self.direction = desired
+        else:
+            self.direction += math.copysign(turn_speed * dt, diff)
+
+        self.pos[0] += math.cos(self.direction) * self.speed * dt
+        self.pos[1] += math.sin(self.direction) * self.speed * dt
+
+        self.life -= dt
+        if self.life <= 0:
+            self.dead = True
+            return False
+        return True
+
+    def draw(self, surface, camera):
+        import pygame
+        sx, sy = camera.world_to_screen(self.pos)
+        r = max(6, int(10 * camera.zoom))
+        pygame.draw.circle(surface, (255, 100, 60),
+                           (int(sx), int(sy)), r)
+        tail_x = sx - math.cos(self.direction) * r * 2
+        tail_y = sy - math.sin(self.direction) * r * 2
+        pygame.draw.line(surface, (255, 200, 100),
+                         (tail_x, tail_y), (sx, sy),
+                         max(1, int(2 * camera.zoom)))
+
+
+# --- Реестр ракет ---
+missile_list = []
+
+
+def spawn_missile(pos, target, damage, speed=400.0):
+    missile_list.append(Missile(pos, target, damage, speed))
+
+
+def update_missiles(dt):
+    global missile_list
+    for m in missile_list:
+        m.update(dt)
+    missile_list = [m for m in missile_list if not m.dead]
+
+
+def draw_missiles(surface, camera):
+    for m in missile_list:
+        m.draw(surface, camera)
+
+
+def clear_missiles():
+    global missile_list
+    missile_list = []

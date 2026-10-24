@@ -6,16 +6,16 @@
   "visited_sector_indices": [
     0
   ],
-  "game_time": 17.779999999999966,
+  "game_time": 11.835999999999993,
   "time_scale_index": 0,
   "ship_pos": [
-    1517.2996840804806,
-    2088.230754199052
+    584.4937487801832,
+    1763.6415921596652
   ],
-  "ship_heading": 1.8184909081810736,
+  "ship_heading": -2.6225937106882324,
   "systems": {
-    "money": 50000000.0,
-    "fuel": 93.27400000000034,
+    "money": 49984000.0,
+    "fuel": 89.32120000000056,
     "o2": 100.0,
     "o2_reserve": 100.0,
     "current_shield": 0.0,
@@ -28,15 +28,15 @@
         "slots": [
           {
             "part_id": "pipe_m",
-            "hp": 98.31850000000001
+            "hp": 97.3302999999996
           },
           {
             "part_id": "gear_m",
-            "hp": 99.15924999999979
+            "hp": 98.66514999999981
           },
           {
             "part_id": "bearing_m",
-            "hp": 98.87900000000003
+            "hp": 98.22019999999996
           }
         ]
       },
@@ -46,15 +46,15 @@
         "slots": [
           {
             "part_id": "cell_n",
-            "hp": 99.11100000000042
+            "hp": 99.40819999999971
           },
           {
             "part_id": "rod_n",
-            "hp": 99.28880000000089
+            "hp": 99.52656000000023
           },
           {
             "part_id": "cable_e",
-            "hp": 98.2220000000007
+            "hp": 98.81640000000043
           }
         ]
       },
@@ -64,15 +64,15 @@
         "slots": [
           {
             "part_id": "board_e",
-            "hp": 98.57759999999904
+            "hp": 99.05311999999995
           },
           {
             "part_id": "spark_n",
-            "hp": 98.2220000000007
+            "hp": 98.81640000000043
           },
           {
             "part_id": "filter_l",
-            "hp": 98.93320000000035
+            "hp": 99.28984000000014
           }
         ]
       },
@@ -82,7 +82,7 @@
         "slots": [
           {
             "part_id": "scanner_h",
-            "hp": 28.0
+            "hp": 100.0
           },
           {
             "part_id": "sealant_h",
@@ -101,6 +101,10 @@
           {
             "part_id": "laser_w",
             "hp": 100.0
+          },
+          {
+            "part_id": "launcher_w",
+            "hp": 100.0
           }
         ]
       },
@@ -116,19 +120,14 @@
     "active_contracts": [],
     "total_earned": 0,
     "contracts_completed": 0,
-    "accident_timer": 17.779999999999966,
-    "accident_cooldown": 130.17191071908988,
+    "accident_timer": 11.835999999999993,
+    "accident_cooldown": 64.7621502951475,
     "story": {
       "active": {},
       "completed": []
     },
     "quest_cargo": {},
-    "scrap": {
-      "scrap_plate": 1,
-      "scrap_metal": 1,
-      "scrap_wire": 1,
-      "scrap_chip": 2
-    },
+    "scrap": {},
     "valuables": {}
   },
   "stations_by_sector": {
@@ -141,9 +140,58 @@
           ],
           "name": "База Сириус",
           "radius": 40,
-          "contracts": [],
-          "contracts_generated_time": 0.0,
-          "contracts_ever_generated": false
+          "contracts": [
+            {
+              "cargo_id": "fuelcell",
+              "reward": 380,
+              "urgent": false,
+              "taken": false,
+              "deadline_time": null,
+              "start_time": null,
+              "from_ref": [
+                0,
+                0
+              ],
+              "to_ref": [
+                0,
+                2
+              ]
+            },
+            {
+              "cargo_id": "meds",
+              "reward": 232,
+              "urgent": false,
+              "taken": false,
+              "deadline_time": null,
+              "start_time": null,
+              "from_ref": [
+                0,
+                0
+              ],
+              "to_ref": [
+                0,
+                2
+              ]
+            },
+            {
+              "cargo_id": "food",
+              "reward": 317,
+              "urgent": true,
+              "taken": false,
+              "deadline_time": null,
+              "start_time": null,
+              "from_ref": [
+                0,
+                0
+              ],
+              "to_ref": [
+                0,
+                2
+              ]
+            }
+          ],
+          "contracts_generated_time": 7.793000000000003,
+          "contracts_ever_generated": true
         },
         {
           "pos": [

@@ -52,7 +52,7 @@ _log("### ship OK")
 from screens import (StationScreen, RepairScreen,
                      ActiveContractsScreen, StartMenuScreen,
                      StoryScreen, ConfirmAttackScreen,
-                     InventoryScreen)
+                     InventoryScreen, PrologueScreen,LoadMissileScreen)
 from screens import set_story_screen_callback
 _log("### screens OK")
 
@@ -219,15 +219,30 @@ galaxy_map_screen = None
 story_screen = None
 confirm_attack_screen = None
 inventory_screen = None
+prologue_screen = None
+load_missile_screen = None
 
 # Цель игрока (NPC)
 player_target = None
 player_fire_timer = 0.0
+missile_timer = 0.0
 
 # Прыжок
 JUMP_COST_MONEY = 50
 JUMP_COST_FUEL = 5.0
 
+def open_load_missile():
+    global load_missile_screen
+    load_missile_screen = LoadMissileScreen(
+        systems, on_close=close_load_missile, state_ref=state)
+    load_missile_screen.open()
+    state.paused = True
+
+
+def close_load_missile():
+    global load_missile_screen
+    load_missile_screen = None
+    state.paused = False
 
 # ---------- Функции управления ----------
 def toggle_pause():
@@ -424,6 +439,18 @@ def open_inventory():
 def close_inventory():
     global inventory_screen
     inventory_screen = None
+    state.paused = False
+
+def open_prologue():
+    global prologue_screen
+    prologue_screen = PrologueScreen(on_finish=close_prologue)
+    prologue_screen.open()
+    state.paused = True
+
+
+def close_prologue():
+    global prologue_screen
+    prologue_screen = None
     state.paused = False
 
 def do_attack(npc):
@@ -653,6 +680,8 @@ buttons = [
            open_galaxy_map, font_size=24),
     Button((margin * 7 + btn_w * 6, bottom, btn_w, btn_h), "ИНВ.",
            open_inventory, font_size=24),
+    Button((margin * 8 + btn_w * 7, bottom, btn_w, btn_h), "ЗАРЯД",
+           open_load_missile, font_size=22),
 ]
 
 save_btn_w, save_btn_h = S(120), S(36)
@@ -958,6 +987,9 @@ def draw_world():
     # Сигналы
     combat.draw_signals(screen, camera)
 
+    # Ракеты
+    combat.draw_missiles(screen, camera)
+
     # Обломки
     combat.draw_debris(screen, camera)
 
@@ -990,7 +1022,6 @@ def draw_ship_panel():
     panel_h = S(360)
     rect = pygame.Rect(S(16), S(60), panel_w, panel_h)
     draw_panel(screen, rect)
-
     x = rect.x + S(14)
     y = rect.y + S(12)
 
@@ -1038,6 +1069,29 @@ def draw_ship_panel():
         pygame.draw.rect(screen, UI_ACCENT,
                          (bar.x, bar.y, fill, bar.h), border_radius=S(4))
         y += S(48)
+
+    # Ракета заряжена?
+    if systems.has_launcher:
+        if systems.loaded_missile is not None:
+            aid, dmg, spd = systems.loaded_missile
+            from data import AMMO_BY_ID
+            name = AMMO_BY_ID.get(aid, {}).get("name", "Ракета")
+            y_rocket = rect.bottom + S(8)
+            if player_target is not None and not player_target.dead:
+                y_rocket += S(90)
+            draw_text(screen, f"ЗАРЯЖЕНО: {name}",
+                      (rect.x + S(14), y_rocket),
+                      size=20, color=UI_OK)
+        else:
+            # Показать количество ракет в трюме
+            total = sum(systems.ammo.values())
+            if total > 0:
+                y_rocket = rect.bottom + S(8)
+                if player_target is not None and not player_target.dead:
+                    y_rocket += S(90)
+                draw_text(screen, f"Ракет в трюме: {total} (нажми ЗАРЯД)",
+                          (rect.x + S(14), y_rocket),
+                          size=18, color=UI_WARN)
 
     from data import SYSTEM_NAMES
     for sid in ("engine", "reactor", "o2gen", "hull"):
@@ -1346,9 +1400,11 @@ def game_over():
 def main():
     global station_screen, repair_screen, contracts_screen, galaxy_map_screen
     global story_screen
-    global player_target, player_fire_timer
+    global player_target, player_fire_timer, missile_timer
     global confirm_attack_screen
     global inventory_screen
+    global prologue_screen
+    global load_missile_screen
 
     _log("### main() entered")
     running = True
@@ -1357,11 +1413,13 @@ def main():
     _log("### before start menu")
     has_save = SAVE.has_save()
     _log(f"### has_save = {has_save}")
+
     menu = StartMenuScreen(
         has_save=has_save,
         on_continue=lambda: load_from_save(),
-        on_new_game=lambda: None,
+        on_new_game=lambda: open_prologue(),
     )
+
     _log("### start menu created")
 
     while menu.active and running:
@@ -1502,6 +1560,23 @@ def main():
                 pygame.display.flip()
                 continue
 
+        # === ПРОЛОГ ===
+        if prologue_screen is not None and prologue_screen.active:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    prologue_screen.skip_all()
+                    break
+                else:
+                    prologue_screen.handle_event(event)
+                    if prologue_screen is None or not prologue_screen.active:
+                        break
+            if prologue_screen is not None and prologue_screen.active:
+                prologue_screen.draw(screen, WIDTH, HEIGHT)
+                pygame.display.flip()
+                continue
+
         # === ИНВЕНТАРЬ ===
         if inventory_screen is not None and inventory_screen.active:
             for event in pygame.event.get():
@@ -1521,6 +1596,28 @@ def main():
                     b.draw(screen)
                 draw_hud()
                 inventory_screen.draw(screen, WIDTH, HEIGHT)
+                pygame.display.flip()
+                continue
+
+        # === ЗАРЯЖАНИЕ РАКЕТЫ ===
+        if load_missile_screen is not None and load_missile_screen.active:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    load_missile_screen.close()
+                    break
+                else:
+                    load_missile_screen.handle_event(event)
+                    if load_missile_screen is None or not load_missile_screen.active:
+                        break
+            if load_missile_screen is not None and load_missile_screen.active:
+                draw_background()
+                draw_world()
+                for b in buttons:
+                    b.draw(screen)
+                draw_hud()
+                load_missile_screen.draw(screen, WIDTH, HEIGHT)
                 pygame.display.flip()
                 continue
 
@@ -1588,17 +1685,34 @@ def main():
 
             # Автострельба по цели
             if player_target is not None and not player_target.dead:
-                ok, dist = combat.can_hit(
-                    ship.pos, ship.heading, player_target.pos,
-                    systems.weapon_radius)
-                if ok:
-                    player_fire_timer -= scaled_dt
-                    if player_fire_timer <= 0:
-                        player_target.take_damage(systems.weapon_damage)
-                        combat.add_hit_flash(
-                            ship.pos, player_target.pos,
-                            color=(120, 220, 255))
-                        player_fire_timer = systems.weapon_rate
+                # --- Лазер ---
+                if systems.weapon_damage > 0:
+                    ok, dist = combat.can_hit(
+                        ship.pos, ship.heading, player_target.pos,
+                        systems.weapon_radius)
+                    if ok:
+                        player_fire_timer -= scaled_dt
+                        if player_fire_timer <= 0:
+                            player_target.take_damage(systems.weapon_damage)
+                            combat.add_hit_flash(
+                                ship.pos, player_target.pos,
+                                color=(120, 220, 255))
+                            player_fire_timer = systems.weapon_rate
+
+                # --- Ракеты ---
+                if systems.has_launcher and systems.loaded_missile is not None:
+                    ok_r, dist_r = combat.can_hit(
+                        ship.pos, ship.heading, player_target.pos,
+                        1500.0)
+                    if ok_r:
+                        # Стреляем сразу, без кулдауна
+                        result = systems.fire_loaded_missile()
+                        if result is not None:
+                            aid, dmg, spd = result
+                            combat.spawn_missile(
+                            ship.pos, player_target, dmg, spd)
+                            state.notify("Ракета пущена!")
+
                 if player_target.dead:
                     state.notify(f"{player_target.name} уничтожен")
                     combat.drop_debris(player_target)
@@ -1612,6 +1726,7 @@ def main():
             systems.update(scaled_dt, thrust_scale)
             combat.update_effects(scaled_dt)
             combat.update_debris(scaled_dt)
+            combat.update_missiles(scaled_dt)
             combat.update_signals(scaled_dt)
 
             if getattr(systems, "last_accident", None):

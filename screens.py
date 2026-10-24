@@ -65,6 +65,8 @@ class StationScreen:
         self.shop_tab_buttons = []
         self.sell_row_buttons = []
         self.ship_buy_buttons = []
+        self.ammo_buy_buttons = []
+        self._build_ammo_buttons()
 
         self.contract_buttons = []
         self.active_contract_buttons = []
@@ -153,7 +155,7 @@ class StationScreen:
                 Button((0, 0, S(120), S(30)), "Купить", cb, font_size=18))
 
     def _build_shop_tabs(self):
-        w = S(200)
+        w = S(180)
         h = S(50)
         x = S(60)
         y = S(120)
@@ -165,6 +167,8 @@ class StationScreen:
                    (lambda: self._set_shop_tab("sell")), font_size=22),
             Button((x + (w + gap) * 2, y, w, h), "Верфь",
                    (lambda: self._set_shop_tab("shipyard")), font_size=22),
+            Button((x + (w + gap) * 3, y, w, h), "Боеприпасы",
+                   (lambda: self._set_shop_tab("ammo")), font_size=22),
         ]
 
     def _build_sell_extra_buttons(self):
@@ -183,6 +187,38 @@ class StationScreen:
         self.sell_valuables_button = Button(
             (x, y + h + gap, w, h), "Продать все трофеи",
             self._sell_all_valuables, font_size=22)
+
+    def _build_ammo_buttons(self):
+        from data import AMMO_DEF
+        self.ammo_buy_buttons = []
+        w = S(120)
+        h = S(30)
+        x = S(1060)
+        y_base = S(245)
+        gap = S(70)
+        for i, row in enumerate(AMMO_DEF):
+            aid = row[0]
+            cb = (lambda a=aid: self.buy_ammo_at(a))
+            btn = Button((x, y_base + i * gap, w, h),
+                         "Купить", cb, font_size=18)
+            self.ammo_buy_buttons.append(btn)
+
+    def buy_ammo_at(self, ammo_id):
+        print(f"[AMMO] buy_ammo_at({ammo_id})")
+        from data import AMMO_BY_ID
+        info = AMMO_BY_ID.get(ammo_id)
+        if info is None:
+            print("[AMMO] info not found")
+            return
+        if self.systems.money < info["price"]:
+            print(f"[AMMO] not enough money: {self.systems.money} < {info['price']}")
+            return
+        if self.systems.total_weight() + info["weight"] > self.systems.cargo_max:
+            print("[AMMO] not enough cargo space")
+            return
+        self.systems.money -= info["price"]
+        self.systems.add_ammo(ammo_id, 1)
+        print(f"[AMMO] bought! now: {self.systems.ammo}")
 
     def _sell_all_scrap(self):
         total = self.systems.sell_all_scrap()
@@ -210,6 +246,8 @@ class StationScreen:
             self._rebuild_sell_buttons()
         elif tab == "shipyard":
             self._rebuild_ship_buttons()
+        elif tab == "ammo":
+             self._build_ammo_buttons()
 
     def _build_contract_buttons(self):
         self.contracts_back_button = Button(
@@ -285,6 +323,7 @@ class StationScreen:
         self.sell_scroll = 0.0
         self._rebuild_sell_buttons()
         self._rebuild_ship_buttons()
+        self._build_ammo_buttons()
 
     def open_contracts(self):
         self.page = PAGE_CONTRACTS
@@ -470,12 +509,25 @@ class StationScreen:
                         return
                 self.shop_back_button.handle_event(event)
                 return
+            if self.shop_tab == "ammo":
+                for b in self.ammo_buy_buttons:
+                    if b.handle_event(event):
+                        return
+                self.shop_back_button.handle_event(event)
+                return
             # Вкладка "Продать": сначала кнопки хлама/трофеев
             if self.shop_tab == "sell":
                 if self.sell_scrap_button.handle_event(event):
                     return
                 if self.sell_valuables_button.handle_event(event):
                     return
+            self._handle_shop_event(event)
+            return
+            # Вкладка "Купить": кнопки боеприпасов
+            if self.shop_tab == "buy":
+                for b in self.ammo_buy_buttons:
+                    if b.handle_event(event):
+                        return
             self._handle_shop_event(event)
             return
 
@@ -683,7 +735,7 @@ class StationScreen:
 
         # Вкладки
         for i, b in enumerate(self.shop_tab_buttons):
-            tab_name = ["buy", "sell", "shipyard"][i]
+            tab_name = ["buy", "sell", "shipyard", "ammo"][i]
             b.color = UI_ACCENT if self.shop_tab == tab_name else UI_PANEL
             b.draw(surface)
 
@@ -693,6 +745,8 @@ class StationScreen:
             self._draw_shop_sell(surface, panel)
         elif self.shop_tab == "shipyard":
             self._draw_shop_shipyard(surface, panel)
+        elif self.shop_tab == "ammo":
+            self._draw_shop_ammo(surface, panel)
 
         self.shop_back_button.draw(surface)
 
@@ -917,6 +971,50 @@ class StationScreen:
                 btn.draw(surface)
 
             y += row_h
+
+    def _draw_shop_ammo(self, surface, panel):
+        from data import AMMO_DEF
+
+        y = S(190)
+        draw_text(surface, "Название", (S(60), y), size=18, color=UI_WARN)
+        draw_text(surface, "Цена", (S(400), y), size=18, color=UI_WARN)
+        draw_text(surface, "Вес", (S(550), y), size=18, color=UI_WARN)
+        draw_text(surface, "В трюме", (S(700), y), size=18, color=UI_WARN)
+        pygame.draw.line(surface, UI_BORDER,
+                         (S(60), S(212)), (S(1200), S(212)), max(1, S(1)))
+
+        y = S(230)
+        for i, row in enumerate(AMMO_DEF):
+            aid, name, price, weight = row
+            afford = self.systems.money >= price
+            fits = (self.systems.total_weight() + weight
+                    <= self.systems.cargo_max)
+            color = UI_TEXT if (afford and fits) else UI_GREY_FALLBACK
+            have = self.systems.ammo.get(aid, 0)
+
+            # Фон
+            pygame.draw.rect(surface, (28, 34, 52),
+                             (S(60), y, S(1150), S(60)),
+                             border_radius=S(6))
+
+            draw_text(surface, name, (S(80), y + S(18)),
+                      size=20, color=color)
+            draw_text(surface, f"{price} кр.", (S(400), y + S(18)),
+                      size=20, color=color)
+            draw_text(surface, f"{weight:.1f}", (S(550), y + S(18)),
+                      size=20, color=color)
+            draw_text(surface, f"x{have}", (S(700), y + S(18)),
+                      size=20, color=UI_ACCENT if have else color)
+
+            # Кнопка
+            btn = self.ammo_buy_buttons[i]
+            btn.rect = pygame.Rect(S(1060), y + S(15),
+                                   S(120), S(30))
+            btn.draw(surface)
+
+            y += S(70)
+
+        self.shop_back_button.draw(surface)
 
     def _draw_contract_row(self, surface, x, y, w, h, contract, now,
                            show_from=True, dim=False):
@@ -2298,5 +2396,323 @@ class InventoryScreen:
             pygame.draw.rect(surface, UI_ACCENT,
                              (track_x, thumb_y, S(6), thumb_h),
                              border_radius=S(3))
+
+        self.close_button.draw(surface)
+        
+# ============================================================
+#                    PROLOGUE SCREEN
+# ============================================================
+
+class PrologueScreen:
+    """Пролог: 20 экранов с текстом и картинкой."""
+
+    def __init__(self, on_finish):
+        from data import PROLOGUE_PAGES
+        self.pages = PROLOGUE_PAGES
+        self.index = 0
+        self.on_finish = on_finish
+        self.active = False
+        self._image_cache = {}
+
+        # Кнопки
+        self.next_button = Button(
+            (0, 0, S(300), S(70)),
+            "Далее →", self.next_page, font_size=26)
+        self.skip_button = Button(
+            (S(60), S(60), S(220), S(50)),
+            "Пропустить", self.skip_all, font_size=20)
+        self.start_button = Button(
+            (0, 0, S(300), S(70)),
+            "Начать игру", self.finish, font_size=26)
+        self._layout_buttons()
+
+    def _layout_buttons(self):
+        from pygame import display
+        surf = display.get_surface()
+        if surf is not None:
+            sw, sh = surf.get_size()
+        else:
+            sw, sh = 1280, 800
+        bw, bh = S(300), S(70)
+        # Кнопка «Далее» снизу справа
+        self.next_button.rect = pygame.Rect(
+            sw - bw - S(60), sh - bh - S(50), bw, bh)
+        # Кнопка «Начать» — там же, но показывается на последней странице
+        self.start_button.rect = self.next_button.rect
+
+    def open(self):
+        self.active = True
+        self.index = 0
+
+    def close(self):
+        self.active = False
+
+    def next_page(self):
+        if self.index < len(self.pages) - 1:
+            self.index += 1
+        else:
+            self.finish()
+
+    def skip_all(self):
+        self.finish()
+
+    def finish(self):
+        self.active = False
+        self.on_finish()
+
+    def _load_image(self, path):
+        """Загружает картинку. Если нет — возвращает None."""
+        if path in self._image_cache:
+            return self._image_cache[path]
+        try:
+            img = pygame.image.load(path).convert()
+            self._image_cache[path] = img
+            return img
+        except Exception:
+            self._image_cache[path] = None
+            return None
+
+    def handle_event(self, event):
+        if not self.active:
+            return
+        # Кнопки
+        if self.next_button.handle_event(event):
+            return
+        if self.skip_button.handle_event(event):
+            return
+        # На последней — start_button
+        if self.index == len(self.pages) - 1:
+            if self.start_button.handle_event(event):
+                return
+        # Тап по экрану — тоже «Далее»
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            # Если попал в кнопки — уже обработано
+            if self.next_button.rect.collidepoint(event.pos):
+                return
+            if self.skip_button.rect.collidepoint(event.pos):
+                return
+            if self.index == len(self.pages) - 1:
+                if self.start_button.rect.collidepoint(event.pos):
+                    return
+            # Иначе — следующая страница
+            self.next_page()
+
+    def draw(self, surface, screen_w, screen_h):
+        if not self.active:
+            return
+
+        page = self.pages[self.index]
+        is_final = page.get("is_final", False)
+        is_title = page.get("is_title", False)
+
+        # === Фон ===
+        img = self._load_image(page.get("image", ""))
+        if img is not None:
+            # Растягиваем под экран, сохраняя пропорции (заполняем)
+            scaled = pygame.transform.smoothscale(img, (screen_w, screen_h))
+            surface.blit(scaled, (0, 0))
+        else:
+            # Заглушка: тёмный градиент
+            surface.fill((8, 10, 22))
+            # Лёгкий градиент
+            for i in range(0, screen_h, 4):
+                alpha = int(30 * (i / screen_h))
+                pygame.draw.rect(surface, (10 + alpha, 12 + alpha, 25 + alpha),
+                                 (0, i, screen_w, 4))
+
+        # === Прогресс: "N / 20" ===
+        prog = get_font(S(22)).render(
+            f"{self.index + 1} / {len(self.pages)}", True, (200, 200, 220))
+        surface.blit(prog, (screen_w - prog.get_width() - S(30), S(30)))
+
+        # === Текст ===
+        title = page.get("title", "")
+        text = page.get("text", "")
+
+        if is_title:
+            # Титул — крупно в центре
+            font_title = get_font(S(72))
+            surf = font_title.render(title, True, (220, 230, 255))
+            rect = surf.get_rect(center=(screen_w // 2, screen_h // 2 - S(40)))
+            surface.blit(surf, rect)
+
+            font_sub = get_font(S(36))
+            surf2 = font_sub.render(text, True, (160, 180, 220))
+            rect2 = surf2.get_rect(center=(screen_w // 2, screen_h // 2 + S(50)))
+            surface.blit(surf2, rect2)
+            
+        else:
+            # Обычный экран — плашка с текстом снизу (в 2 раза ниже)
+            pad = S(40)
+            panel_h = S(140)   # было S(240) — уменьшили в 2 раза
+            panel_y = screen_h - panel_h - S(140)
+            panel_rect = pygame.Rect(pad, panel_y,
+                                     screen_w - pad * 2, panel_h)
+
+            # Полупрозрачная плашка
+            overlay = pygame.Surface((panel_rect.w, panel_rect.h),
+                                     pygame.SRCALPHA)
+            overlay.fill((8, 10, 22, 200))
+            surface.blit(overlay, panel_rect.topleft)
+            pygame.draw.rect(surface, (70, 90, 130), panel_rect,
+                             width=max(1, S(2)), border_radius=S(12))
+
+            # Заголовок сцены
+            draw_text(surface, title,
+                      (panel_rect.x + S(20), panel_rect.y + S(14)),
+                      size=28, color=(240, 180, 60))
+
+            # Текст с переносом
+            self._draw_wrapped(surface, text,
+                               panel_rect.x + S(20),
+                               panel_rect.y + S(70),
+                               panel_rect.w - S(40),
+                               S(36))
+
+        # === Кнопки ===
+        # «Пропустить» — всегда
+        self.skip_button.draw(surface)
+
+        # «Далее» или «Начать игру»
+        if is_final:
+            self.start_button.draw(surface)
+        else:
+            self.next_button.draw(surface)
+
+    def _draw_wrapped(self, surface, text, x, y, max_w, line_h):
+        font = get_font(S(24))
+        # Обрабатываем \n как принудительные переносы
+        paragraphs = text.split("\n")
+        cy = y
+        for para in paragraphs:
+            words = para.split()
+            cur = ""
+            for w in words:
+                test = cur + " " + w if cur else w
+                if font.size(test)[0] > max_w:
+                    surf = font.render(cur, True, (220, 225, 235))
+                    surface.blit(surf, (x, cy))
+                    cy += line_h
+                    cur = w
+                else:
+                    cur = test
+            if cur:
+                surf = font.render(cur, True, (220, 225, 235))
+                surface.blit(surf, (x, cy))
+                cy += line_h
+                
+# ============================================================
+#                    LOAD MISSILE SCREEN
+# ============================================================
+
+class LoadMissileScreen:
+    """Экран заряжания ракеты в пусковую установку."""
+
+    def __init__(self, systems, on_close, state_ref=None):
+        self.systems = systems
+        self.on_close = on_close
+        self.state = state_ref
+        self.active = False
+
+        from data import AMMO_DEF
+        self.ammo_list = AMMO_DEF
+
+        self.close_button = Button(
+            (S(60), S(720), S(200), S(60)),
+            "Закрыть", self.close, font_size=24)
+
+        self.load_buttons = []
+        self._build_buttons()
+
+    def _build_buttons(self):
+        from data import AMMO_BY_ID
+        self.load_buttons = []
+        w = S(240)
+        h = S(60)
+        x = S(900)
+        y = S(250)
+        gap = S(80)
+        for i, row in enumerate(AMMO_DEF):
+            aid = row[0]
+            cb = (lambda a=aid: self.load_ammo(a))
+            btn = Button((x, y + i * gap, w, h),
+                         "Зарядить", cb, font_size=22)
+            self.load_buttons.append(btn)
+
+    def open(self):
+        self.active = True
+
+    def close(self):
+        self.active = False
+        self.on_close()
+
+    def load_ammo(self, ammo_id):
+        ok = self.systems.load_missile(ammo_id)
+        if ok and self.state:
+            from data import AMMO_BY_ID
+            name = AMMO_BY_ID.get(ammo_id, {}).get("name", "Ракета")
+            self.state.notify(f"Заряжено: {name}")
+            self.close()
+
+    def handle_event(self, event):
+        if not self.active:
+            return
+        if self.close_button.handle_event(event):
+            return
+        for b in self.load_buttons:
+            if b.handle_event(event):
+                return
+
+    def draw(self, surface, screen_w, screen_h):
+        from data import AMMO_BY_ID
+        overlay = pygame.Surface((screen_w, screen_h))
+        overlay.set_alpha(200)
+        overlay.fill((8, 10, 22))
+        surface.blit(overlay, (0, 0))
+
+        panel = pygame.Rect(S(40), S(60), screen_w - S(80), screen_h - S(120))
+        draw_panel(surface, panel)
+
+        draw_text(surface, "ЗАРЯЖАНИЕ РАКЕТЫ",
+                  (panel.x + S(20), panel.y + S(14)),
+                  size=32, color=UI_ACCENT)
+
+        # Текущая заряженная
+        if self.systems.loaded_missile is not None:
+            aid, dmg, spd = self.systems.loaded_missile
+            name = AMMO_BY_ID.get(aid, {}).get("name", "Ракета")
+            draw_text(surface, f"Заряжено: {name} (урон {int(dmg)})",
+                      (panel.x + S(20), panel.y + S(60)),
+                      size=24, color=UI_OK)
+        else:
+            draw_text(surface, "Пусковая пуста",
+                      (panel.x + S(20), panel.y + S(60)),
+                      size=24, color=UI_DIM)
+
+        # Список ракет в трюме
+        y = S(250)
+        for i, row in enumerate(self.ammo_list):
+            aid, name, price, weight = row
+            have = self.systems.ammo.get(aid, 0)
+            from data import MISSILE_PARAMS
+            params = MISSILE_PARAMS.get(aid, {"damage": 40})
+            dmg = int(params["damage"])
+
+            color = UI_TEXT if have > 0 else UI_DIM
+
+            draw_text(surface, name, (S(80), y + S(10)),
+                      size=22, color=color)
+            draw_text(surface, f"Урон: {dmg}", (S(450), y + S(10)),
+                      size=20, color=color)
+            draw_text(surface, f"В трюме: x{have}", (S(650), y + S(10)),
+                      size=20, color=UI_ACCENT if have > 0 else color)
+
+            # Кнопка — только если есть ракеты
+            if have > 0:
+                btn = self.load_buttons[i]
+                btn.rect = pygame.Rect(S(900), y, S(240), S(60))
+                btn.draw(surface)
+
+            y += S(80)
 
         self.close_button.draw(surface)
