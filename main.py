@@ -41,6 +41,7 @@ from data import (FPS, FULLSCREEN, TITLE, DARK_SPACE, UI_TEXT, TIME_SCALES,
 _log("### data OK")
 
 from ui import Button, draw_text, draw_panel, get_font
+from localization import translate
 _log("### ui OK")
 
 import combat
@@ -1217,7 +1218,7 @@ def draw_contracts_panel():
         draw_text(screen, f"-> {target}", (rect.x + S(12), y + S(26)),
                   size=18, color=UI_TEXT)
 
-        surf = get_font(S(18)).render(reward_text, True, col)
+        surf = get_font(S(18)).render(translate(reward_text), True, col)
         screen.blit(surf, (rect.right - surf.get_width() - S(12), y + S(14)))
 
         y += row_h
@@ -1320,14 +1321,14 @@ def draw_minimap():
     pygame.draw.polygon(screen, (255, 255, 255), [nose, left, right], 1)
 
     label = f"Сектор {sector.name}"
-    surf = get_font(S(16)).render(label, True, UI_TEXT)
+    surf = get_font(S(16)).render(translate(label), True, UI_TEXT)
     screen.blit(surf, (rect.x + S(8), rect.y + S(6)))
 
 
 def draw_notification():
     if state.notification_t <= 0:
         return
-    surf = get_font(S(28)).render(state.notification, True, (255, 255, 255))
+    surf = get_font(S(28)).render(translate(state.notification), True, (255, 255, 255))
     r = surf.get_rect(midbottom=(WIDTH // 2, HEIGHT - S(120)))
     pad = S(12)
     bg = pygame.Rect(r.x - pad, r.y - pad, r.w + pad * 2, r.h + pad * 2)
@@ -1379,12 +1380,12 @@ def game_over():
                 running = False
 
         screen.fill((8, 0, 0))
-        surf = font_big.render("ВАШ КОРАБЛЬ УНИЧТОЖЕН",
+        surf = font_big.render(translate("ВАШ КОРАБЛЬ УНИЧТОЖЕН"),
                                True, (230, 80, 80))
         rect = surf.get_rect(center=(WIDTH // 2, HEIGHT // 2 - S(60)))
         screen.blit(surf, rect)
 
-        surf2 = font_small.render("Тапните, чтобы начать заново",
+        surf2 = font_small.render(translate("Тапните, чтобы начать заново"),
                                   True, (240, 240, 240))
         rect2 = surf2.get_rect(center=(WIDTH // 2, HEIGHT // 2 + S(40)))
         screen.blit(surf2, rect2)

@@ -2,6 +2,7 @@
 
 import pygame
 from data import (UI_PANEL, UI_BORDER, UI_TEXT, UI_ACCENT, WHITE, S)
+from localization import translate
 
 
 _font_cache = {}
@@ -45,14 +46,14 @@ class Button:
         pygame.draw.rect(surface, UI_BORDER, self.rect,
                          width=max(1, S(2)), border_radius=radius)
         font = get_font(self.font_size)
-        surf = font.render(self.text, True, self.text_color)
+        surf = font.render(translate(self.text), True, self.text_color)
         r = surf.get_rect(center=self.rect.center)
         surface.blit(surf, r)
 
 
 def draw_text(surface, text, pos, size=24, color=UI_TEXT, center=False):
     font = get_font(S(size))
-    surf = font.render(text, True, color)
+    surf = font.render(translate(text), True, color)
     r = surf.get_rect()
     if center:
         r.center = pos

@@ -14,6 +14,7 @@ from data import (UI_PANEL, UI_BORDER, UI_TEXT, UI_ACCENT, UI_OK,
                   CONTRACT_MAX_ACTIVE, CONTRACT_URGENT_DEADLINE)
 from ships_data import SPACESHIPS, SHIPS_BY_ID
 from ui import Button, draw_text, draw_panel, get_font
+from localization import get_language, toggle_language, translate
 from contracts import take_contract, generate_contracts_for_station
 
 
@@ -1414,6 +1415,12 @@ class StartMenuScreen:
         self.on_continue = on_continue
         self.on_new_game = on_new_game
         self.buttons = []
+        self.language_button = None
+
+    def _toggle_language(self):
+        language = toggle_language()
+        self.language_button.text = (
+            "Язык: English" if language == "ru" else "Language: Русский")
 
     def _build_buttons(self, screen_w, screen_h):
         w = S(400)
@@ -1433,6 +1440,13 @@ class StartMenuScreen:
             self.buttons.append(
                 Button((x, y, w, h), "Начать игру",
                        self.new_game, font_size=30))
+        self.language_button = Button(
+            (screen_w - S(230), S(30), S(200), S(56)),
+            "Язык: English" if get_language() == "ru"
+            else "Language: Русский",
+            self._toggle_language,
+            font_size=20)
+        self.buttons.append(self.language_button)
 
     def continue_game(self):
         self.active = False
@@ -1673,7 +1687,8 @@ class GalaxyMapScreen:
                                max(2, S(2)))
             if is_visited or is_current:
                 name = self._sector_name(idx)
-                surf = get_font(S(20)).render(name, True, (240, 240, 240))
+                surf = get_font(S(20)).render(
+                    translate(name), True, (240, 240, 240))
                 rect = surf.get_rect(center=(sx, sy - r - S(14)))
                 surface.blit(surf, rect)
             else:
@@ -1728,7 +1743,8 @@ class GalaxyMapScreen:
         self.close_button.draw(surface)
 
         hint = "Тащи пальцем чтобы сдвинуть. Тап по сектору — информация"
-        surf = get_font(S(18)).render(hint, True, (150, 150, 160))
+        surf = get_font(S(18)).render(
+            translate(hint), True, (150, 150, 160))
         rect = surf.get_rect(midbottom=(screen_w // 2, screen_h - S(20)))
         surface.blit(surf, rect)
 
@@ -2012,6 +2028,7 @@ class StoryScreen:
         return "???"
 
     def _estimate_lines(self, text, max_w):
+        text = translate(text)
         font = get_font(S(24))
         words = text.split()
         lines = 1
@@ -2026,6 +2043,7 @@ class StoryScreen:
         return lines
 
     def _draw_wrapped(self, surface, text, x, y, max_w, line_h):
+        text = translate(text)
         font = get_font(S(24))
         words = text.split()
         cur = ""
@@ -2532,12 +2550,12 @@ class PrologueScreen:
         if is_title:
             # Титул — крупно в центре
             font_title = get_font(S(72))
-            surf = font_title.render(title, True, (220, 230, 255))
+            surf = font_title.render(translate(title), True, (220, 230, 255))
             rect = surf.get_rect(center=(screen_w // 2, screen_h // 2 - S(40)))
             surface.blit(surf, rect)
 
             font_sub = get_font(S(36))
-            surf2 = font_sub.render(text, True, (160, 180, 220))
+            surf2 = font_sub.render(translate(text), True, (160, 180, 220))
             rect2 = surf2.get_rect(center=(screen_w // 2, screen_h // 2 + S(50)))
             surface.blit(surf2, rect2)
             
@@ -2580,6 +2598,7 @@ class PrologueScreen:
             self.next_button.draw(surface)
 
     def _draw_wrapped(self, surface, text, x, y, max_w, line_h):
+        text = translate(text)
         font = get_font(S(24))
         # Обрабатываем \n как принудительные переносы
         paragraphs = text.split("\n")

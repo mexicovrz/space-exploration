@@ -2,6 +2,7 @@
 
 import math
 import random
+from localization import translate
 from data import (NPC_TYPES,
                   SCRAP_DEF, SCRAP_BY_ID,
                   VALUABLES_DEF, VALUABLES_BY_ID,
@@ -314,7 +315,7 @@ class NPCShip:
         if is_target:
             import pygame.font
             font = pygame.font.SysFont(None, int(18 * camera.zoom))
-            surf = font.render(self.name, True, (240, 240, 240))
+            surf = font.render(translate(self.name), True, (240, 240, 240))
             rect = surf.get_rect(center=(sx, sy - size - 24))
             surface.blit(surf, rect)
 
