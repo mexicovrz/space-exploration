@@ -183,6 +183,14 @@ PARTS_DEF = [
      "laser_w", {"weapon_damage": 8.0, "weapon_rate": 0.5}),
     ("laser_w_mk2", "Оружие", "Лазер MK2", 3500, 2.5, 100.0, 0.05,
      "laser_w", {"weapon_damage": 14.0, "weapon_rate": 0.4}),
+    ("autocannon_w", "Оружие", "Импульсная автопушка", 2600, 3.2, 100.0, 0.07,
+     "laser_w", {"weapon_damage": 5.0, "weapon_rate": 0.22}),
+    ("ion_w", "Оружие", "Ионная пушка", 4200, 2.8, 100.0, 0.06,
+     "laser_w", {"weapon_damage": 6.0, "weapon_rate": 0.65,
+                 "weapon_emp_duration": 1.8}),
+    ("arc_w", "Оружие", "Дуговая пушка", 6200, 4.0, 100.0, 0.08,
+     "laser_w", {"weapon_damage": 10.0, "weapon_rate": 0.85,
+                 "weapon_chain_damage": 5.0, "weapon_chain_range": 240.0}),
 
     # ============ ЩИТ ============
     ("shield_gen", "Щит", "Генератор щита", 2000, 3.0, 100.0, 0.05,
@@ -202,6 +210,12 @@ PARTS_DEF = [
     ("launcher_w_mk2", "Оружие", "Пусковая установка MK2", 7000, 3.5, 100.0, 0.05,
      "launcher_w", {"is_launcher": 1, "missile_rate_bonus": 0.5}),
 ]
+
+WEAPON_QUIRKS = {
+    "autocannon_w": "Частые выстрелы, небольшой урон",
+    "ion_w": "Отключает оружие цели на 1,8 сек.",
+    "arc_w": "Цепляет ближайшего пирата: +5 урона",
+}
 
 # Быстрый доступ
 PARTS_BY_ID = {row[0]: {
@@ -486,11 +500,6 @@ PROLOGUE_PAGES = [
         "image": "images/prologue/20_you.jpeg",
         "is_final": True,
     },
-]
-
-# --- Боеприпасы (расходники) ---
-AMMO_DEF = [
-    ("missile_ammo", "Ракета", 800, 0.8),   # id, имя, цена, вес
 ]
 
 AMMO_BY_ID = {row[0]: {

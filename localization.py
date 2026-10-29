@@ -213,6 +213,12 @@ O2 КАБ.!	O2 CABIN!
 Фильтры	Filters
 Баллоны	Cylinders
 Лазер	Laser
+Импульсная автопушка	Pulse Autocannon
+Ионная пушка	Ion Cannon
+Дуговая пушка	Arc Cannon
+Частые выстрелы, небольшой урон	Fast shots, low damage
+Отключает оружие цели на 1,8 сек.	Disables the target's weapons for 1.8 sec.
+Цепляет ближайшего пирата: +5 урона	Chains to a nearby pirate: +5 damage
 Оружие	Weapons
 Пусковая установка	Launcher
 Генератор щита	Shield generator

@@ -1695,6 +1695,30 @@ def main():
                         player_fire_timer -= scaled_dt
                         if player_fire_timer <= 0:
                             player_target.take_damage(systems.weapon_damage)
+                            emp_duration = systems.weapon_emp_duration
+                            if emp_duration > 0:
+                                player_target.apply_emp(emp_duration)
+                            chain_damage = systems.weapon_chain_damage
+                            if chain_damage > 0:
+                                chain_range = systems.weapon_chain_range
+                                secondary = min(
+                                    (npc for npc in sector.npcs
+                                     if npc is not player_target and not npc.dead
+                                     and npc.npc_type == "pirate"
+                                     and math.hypot(
+                                         npc.pos[0] - player_target.pos[0],
+                                         npc.pos[1] - player_target.pos[1])
+                                     <= chain_range),
+                                    key=lambda npc: math.hypot(
+                                        npc.pos[0] - player_target.pos[0],
+                                        npc.pos[1] - player_target.pos[1]),
+                                    default=None)
+                                if secondary is not None:
+                                    if secondary.take_damage(chain_damage):
+                                        combat.drop_debris(secondary)
+                                    combat.add_hit_flash(
+                                        player_target.pos, secondary.pos,
+                                        color=(120, 220, 255))
                             combat.add_hit_flash(
                                 ship.pos, player_target.pos,
                                 color=(120, 220, 255))

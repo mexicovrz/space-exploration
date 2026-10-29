@@ -738,6 +738,41 @@ class ShipSystems:
         return min(rates)
 
     @property
+    def weapon_emp_duration(self):
+        w = self.systems.get("weapon", None)
+        if w is None:
+            return 0.0
+        return max(
+            (slot.part.info.get("effects", {}).get(
+                "weapon_emp_duration", 0.0)
+             for slot in w.slots
+             if slot.part is not None and not slot.part.is_broken()),
+            default=0.0)
+
+    @property
+    def weapon_chain_damage(self):
+        w = self.systems.get("weapon", None)
+        if w is None:
+            return 0.0
+        return sum(
+            slot.part.info.get("effects", {}).get(
+                "weapon_chain_damage", 0.0)
+            for slot in w.slots
+            if slot.part is not None and not slot.part.is_broken())
+
+    @property
+    def weapon_chain_range(self):
+        w = self.systems.get("weapon", None)
+        if w is None:
+            return 0.0
+        return max(
+            (slot.part.info.get("effects", {}).get(
+                "weapon_chain_range", 0.0)
+             for slot in w.slots
+             if slot.part is not None and not slot.part.is_broken()),
+            default=0.0)
+
+    @property
     def weapon_radius(self):
         """Радиус действия оружия."""
         if self.weapon_damage <= 0:

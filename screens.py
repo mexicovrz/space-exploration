@@ -10,6 +10,7 @@ from data import (UI_PANEL, UI_BORDER, UI_TEXT, UI_ACCENT, UI_OK,
                   FUEL_PRICE_PER_UNIT, O2_RESERVE_REFILL_PRICE,
                   PARTS_DEF, PARTS_BY_ID, SYSTEM_SLOTS, SYSTEM_NAMES,
                   CARGO_BY_ID,
+                  WEAPON_QUIRKS,
                   STATION_MENU_BUTTON_W, STATION_MENU_BUTTON_H,
                   CONTRACT_MAX_ACTIVE, CONTRACT_URGENT_DEADLINE)
 from ships_data import SPACESHIPS, SHIPS_BY_ID
@@ -789,6 +790,10 @@ class StationScreen:
 
             draw_text(surface, group, (S(60), ry + S(8)), size=18, color=color)
             draw_text(surface, name, (S(280), ry + S(8)), size=18, color=color)
+            quirk = WEAPON_QUIRKS.get(pid)
+            if quirk:
+                draw_text(surface, quirk, (S(280), ry + S(24)),
+                          size=13, color=UI_DIM)
             draw_text(surface, f"{price}", (S(600), ry + S(8)), size=18, color=color)
             draw_text(surface, f"{part_weight:.1f}", (S(680), ry + S(8)),
                       size=18, color=color)
@@ -1194,14 +1199,16 @@ class RepairScreen:
             return
         sys = self.systems.systems[self.selected_system]
         slot = sys.slots[self.selected_slot]
+        action_x = S(560)
         if slot.part is not None:
             self.action_buttons.append(
-                Button((S(60), S(400), S(200), S(50)),
+                Button((action_x, S(400), S(200), S(50)),
                        "Вынуть", self.action_remove, font_size=20))
+            action_x += S(220)
         if self.systems.find_part_in_inventory(slot.required_part_id,
                                                 by_tier=True) is not None:
             self.action_buttons.append(
-                Button((S(60), S(460), S(300), S(50)),
+                Button((action_x, S(400), S(300), S(50)),
                        "Поставить из трюма", self.action_install,
                        font_size=20))
 

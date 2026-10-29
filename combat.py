@@ -109,6 +109,7 @@ class NPCShip:
         self.speed_base = cfg["speed"]
 
         self.fire_timer = 0.0
+        self.emp_timer = 0.0
         self.target_ship = None      # текущая цель боя (NPC или None для игрока)
 
         # AI состояние
@@ -151,6 +152,9 @@ class NPCShip:
             return True
         return False
 
+    def apply_emp(self, duration):
+        self.emp_timer = max(self.emp_timer, duration)
+
     # --- Движение ---
 
     def set_target(self, pos):
@@ -192,6 +196,7 @@ class NPCShip:
         """Обновляет состояние и цель. Простой FSM."""
         self.state_time += dt
         self.fire_timer = max(0.0, self.fire_timer - dt)
+        self.emp_timer = max(0.0, self.emp_timer - dt)
 
         # Проверяем расстояние до игрока
         dx = player_pos[0] - self.pos[0]
@@ -273,7 +278,7 @@ class NPCShip:
 
     def fire_at_player(self, player_pos, player_ship):
         """Стреляет в игрока, если кулдаун готов."""
-        if self.fire_timer > 0:
+        if self.fire_timer > 0 or self.emp_timer > 0:
             return
         # Проверяем радиус
         d = math.hypot(player_pos[0] - self.pos[0],
@@ -335,8 +340,8 @@ def simulate_npc_combat(npc_a, npc_b, dt):
     npc_a.combat_timer = 0.0
 
     # Случайный урон
-    dmg_a = npc_a.damage if npc_a.damage > 0 else 4.0
-    dmg_b = npc_b.damage if npc_b.damage > 0 else 4.0
+    dmg_a = (npc_a.damage if npc_a.damage > 0 else 4.0) if npc_a.emp_timer <= 0 else 0
+    dmg_b = (npc_b.damage if npc_b.damage > 0 else 4.0) if npc_b.emp_timer <= 0 else 0
 
     npc_b.take_damage(dmg_a)
     if npc_b.dead:
