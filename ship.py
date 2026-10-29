@@ -80,9 +80,10 @@ class SystemSlot:
 class ShipSystem:
     """Система корабля: список слотов."""
 
-    def __init__(self, sid):
+    def __init__(self, sid, slot_template=None):
         self.id = sid
-        self.slots = [SystemSlot(pid) for pid in SYSTEM_SLOTS[sid]]
+        slot_template = slot_template or SYSTEM_SLOTS[sid]
+        self.slots = [SystemSlot(pid) for pid in slot_template]
         self.hp_bonus = 0.0
         for slot in self.slots:
             slot.part = PartInstance(slot.required_part_id)
@@ -157,6 +158,9 @@ class ShipSystem:
             part_data = d["slots"][i] if i < len(d["slots"]) else None
             if part_data is not None:
                 slot.part = PartInstance.from_dict(part_data)
+            elif (i >= len(d["slots"])
+                  and i >= len(SYSTEM_SLOTS[sys.id])):
+                slot.part = PartInstance(req_pid)
             sys.slots.append(slot)
         return sys
 
@@ -185,8 +189,8 @@ class ShipSystems:
         self.cargo_max = SHIPS_BY_ID[self.ship_type]["cargo_max"]
 
         self.systems = {
-            sid: ShipSystem(sid)
-            for sid in ("engine", "reactor", "o2gen", "hull", "weapon", "shield")
+            sid: ShipSystem(sid, template)
+            for sid, template in self._module_slots(self.ship_type).items()
         }
         
                 # У игрока с начала есть базовый лазер в системе "weapon"
@@ -558,14 +562,14 @@ class ShipSystems:
                         target_sid = k[len("hp_bonus_"):]
                         if target_sid == sys_id:
                             hp_bonus += v
-                    else:
+                    elif k != "fuel_save":
                         raw[k] = raw.get(k, 0.0) + v
             sys.hp_bonus = hp_bonus
 
         self.effects = {}
         self.effects["speed_mult"] = max(0.3, 1.0 + raw.get("speed_bonus", 0.0))
         self.effects["accel_mult"] = max(0.3, 1.0 + raw.get("accel_bonus", 0.0))
-        self.effects["fuel_mult"] = max(0.1, 1.0 - raw.get("fuel_save", 0.0))
+        self.effects["fuel_mult"] = 1.0
         self.effects["o2_mult"] = max(0.1, 1.0 - raw.get("o2_save", 0.0))
         for sid in ("engine", "reactor", "o2gen"):
             key = f"wear_reduction_{sid}"
@@ -580,10 +584,67 @@ class ShipSystems:
     def apply_ship_type(self, ship_id):
         if ship_id not in SHIPS_BY_ID:
             return False
+        target_slots = self._module_slots(ship_id)
+        returned_parts = self._parts_returned_by_layout(target_slots)
+        target_cargo = SHIPS_BY_ID[ship_id]["cargo_max"]
+        returned_weight = sum(part.weight for part in returned_parts)
+        if self.total_weight() + returned_weight > target_cargo:
+            return False
+
         self.ship_type = ship_id
-        self.cargo_max = SHIPS_BY_ID[ship_id]["cargo_max"]
+        self.cargo_max = target_cargo
+        for part in returned_parts:
+            self.inventory.append(part)
+
+        updated_systems = {}
+        for sid, template in target_slots.items():
+            old_system = self.systems.get(sid)
+            old_slots = old_system.slots if old_system is not None else []
+            slots = [SystemSlot(pid) for pid in template]
+            for index, old_slot in enumerate(old_slots):
+                if old_slot.part is None:
+                    continue
+                if (index < len(slots)
+                        and PARTS_BY_ID[old_slot.part.part_id]["tier_for"]
+                        == PARTS_BY_ID[slots[index].required_part_id]["tier_for"]):
+                    slots[index].part = old_slot.part
+            for index, slot in enumerate(slots):
+                if index >= len(old_slots):
+                    slot.part = PartInstance(slot.required_part_id)
+            updated = ShipSystem.__new__(ShipSystem)
+            updated.id = sid
+            updated.slots = slots
+            updated.hp_bonus = old_system.hp_bonus if old_system else 0.0
+            updated_systems[sid] = updated
+
+        self.systems = updated_systems
         self.recompute_effects()
         return True
+
+    @staticmethod
+    def _module_slots(ship_id):
+        slots = {
+            sid: list(template)
+            for sid, template in SYSTEM_SLOTS.items()
+            if sid != "engine2"
+        }
+        for sid, extra_slots in SHIPS_BY_ID[ship_id].get(
+                "module_slots", {}).items():
+            slots.setdefault(sid, []).extend(extra_slots)
+        return slots
+
+    def _parts_returned_by_layout(self, target_slots):
+        returned = []
+        for sid, system in self.systems.items():
+            template = target_slots.get(sid, [])
+            for index, slot in enumerate(system.slots):
+                if slot.part is None:
+                    continue
+                if (index >= len(template)
+                        or PARTS_BY_ID[slot.part.part_id]["tier_for"]
+                        != PARTS_BY_ID[template[index]]["tier_for"]):
+                    returned.append(slot.part)
+        return returned
 
     def buy_ship(self, ship_id):
         if ship_id not in SHIPS_BY_ID:
@@ -598,25 +659,50 @@ class ShipSystems:
         if old_ship is not None:
             refund = int(old_ship["price"] * 0.3)
 
-        if self.total_weight() > ship["cargo_max"]:
+        target_slots = self._module_slots(ship_id)
+        returned_weight = sum(part.weight for part in
+                              self._parts_returned_by_layout(target_slots))
+        if self.total_weight() + returned_weight > ship["cargo_max"]:
             return False
-
+        if not self.apply_ship_type(ship_id):
+            return False
         self.money -= price
         self.money += refund
-        self.apply_ship_type(ship_id)
         return True
 
     def get_ship_speed_mult(self):
         ship = SHIPS_BY_ID.get(self.ship_type, None)
         if ship is None:
             return 1.0
-        return ship.get("speed_mult", 1.0)
+        return ship.get("speed_mult", 1.0) * self._engine_output_multiplier()
 
     def get_ship_accel_mult(self):
         ship = SHIPS_BY_ID.get(self.ship_type, None)
         if ship is None:
             return 1.0
-        return ship.get("accel_mult", 1.0)
+        return ship.get("accel_mult", 1.0) * self._engine_output_multiplier()
+
+    def _engine_output_multiplier(self):
+        engines = self._engine_systems()
+        if not engines:
+            return 0.0
+        return sum(engine.is_functional for engine in engines) / len(engines)
+
+    def _engine_systems(self):
+        return [system for sid, system in self.systems.items()
+                if sid == "engine" or sid.startswith("engine")]
+
+    def _engine_fuel_multiplier(self):
+        engine_efficiencies = []
+        for engine in self._engine_systems():
+            if not engine.is_functional:
+                continue
+            savings = sum(
+                slot.part.info.get("effects", {}).get("fuel_save", 0.0)
+                for slot in engine.slots
+                if slot.part is not None and not slot.part.is_broken())
+            engine_efficiencies.append(max(0.25, 1.0 - savings))
+        return sum(engine_efficiencies)
 
     def get_ship_fuel_mult(self):
         ship = SHIPS_BY_ID.get(self.ship_type, None)
@@ -630,14 +716,15 @@ class ShipSystems:
         # Топливо: детали + корабль
         if thrust_scale > 0.01:
             fuel_mult = (self.effects.get("fuel_mult", 1.0)
-                         * self.get_ship_fuel_mult())
+                         * self.get_ship_fuel_mult()
+                         * self._engine_fuel_multiplier())
             burn = FUEL_BURN_PER_SEC * thrust_scale * dt * fuel_mult
             self.consume_fuel(burn)
 
         # Износ систем
         if thrust_scale > 0.01:
-            self.systems["engine"].wear(
-                dt * self.effects.get("wear_engine_mult", 1.0))
+            for engine in self._engine_systems():
+                engine.wear(dt * self.effects.get("wear_engine_mult", 1.0))
         self.systems["reactor"].wear(
             dt * self.effects.get("wear_reactor_mult", 1.0))
         self.systems["o2gen"].wear(
@@ -697,7 +784,7 @@ class ShipSystems:
 
     @property
     def engine_alive(self):
-        return self.systems["engine"].is_functional
+        return any(engine.is_functional for engine in self._engine_systems())
 
     @property
     def can_thrust(self):
@@ -861,6 +948,10 @@ class ShipSystems:
             "quest_cargo": self.quest_cargo,
             "scrap": self.scrap,
             "valuables": self.valuables,
+            "ammo": self.ammo,
+            "loaded_missile": (
+                self.loaded_missile[0]
+                if self.loaded_missile is not None else None),
         }
 
     def apply_dict(self, d, station_lookup):
@@ -883,9 +974,30 @@ class ShipSystems:
             self.ship_type = STARTING_SHIP_ID
             self.cargo_max = SHIPS_BY_ID[STARTING_SHIP_ID]["cargo_max"]
 
-        for sid, sys_data in d.get("systems", {}).items():
+        module_slots = self._module_slots(self.ship_type)
+        self.systems = {
+            sid: ShipSystem(sid, template)
+            for sid, template in module_slots.items()
+        }
+        saved_systems = d.get("systems", {})
+        legacy_engine = saved_systems.get("engine", {})
+        legacy_slots = legacy_engine.get("slots", [])
+        if (self.ship_type == "hauler"
+                and "engine2" not in saved_systems
+                and len(legacy_slots) > len(SYSTEM_SLOTS["engine"])):
+            split_at = len(SYSTEM_SLOTS["engine"])
+            saved_systems = dict(saved_systems)
+            saved_systems["engine"] = {
+                **legacy_engine,
+                "slots": legacy_slots[:split_at],
+            }
+            saved_systems["engine2"] = {
+                "id": "engine2",
+                "slots": legacy_slots[split_at:split_at * 2],
+            }
+        for sid, sys_data in saved_systems.items():
             if sid in self.systems:
-                template = SYSTEM_SLOTS[sid]
+                template = module_slots[sid]
                 self.systems[sid] = ShipSystem.from_dict(sys_data, template)
 
         self.inventory = [
@@ -911,5 +1023,24 @@ class ShipSystems:
         # Хлам и трофеи
         self.scrap = d.get("scrap", {})
         self.valuables = d.get("valuables", {})
+        saved_ammo = d.get("ammo", {})
+        self.ammo = {}
+        if isinstance(saved_ammo, dict):
+            self.ammo = {
+                ammo_id: count
+                for ammo_id, count in saved_ammo.items()
+                if ammo_id in AMMO_BY_ID
+                and isinstance(count, int)
+                and not isinstance(count, bool)
+                and count > 0
+            }
+        loaded_ammo_id = d.get("loaded_missile")
+        if loaded_ammo_id in AMMO_BY_ID:
+            params = MISSILE_PARAMS.get(
+                loaded_ammo_id, {"damage": 40.0, "speed": 400.0})
+            self.loaded_missile = (
+                loaded_ammo_id, params["damage"], params["speed"])
+        else:
+            self.loaded_missile = None
 
         self.recompute_effects()

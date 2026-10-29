@@ -20,7 +20,10 @@ SPACESHIPS = [
         "speed_mult": 0.8,
         "accel_mult": 0.8,
         "fuel_mult": 1.2,
-        "description": "Тяжёлый грузовик. Большой трюм, но медленный и жрёт топливо.",
+        "module_slots": {
+            "engine2": ["pipe_m", "gear_m", "bearing_m"],
+        },
+        "description": "Два двигателя: второй сохраняет ход при поломке первого. Большой трюм.",
     },
     {
         "id": "courier",
@@ -30,7 +33,10 @@ SPACESHIPS = [
         "speed_mult": 1.4,
         "accel_mult": 1.3,
         "fuel_mult": 0.7,
-        "description": "Быстрый и экономичный. Маленький трюм.",
+        "module_slots": {
+            "weapon": ["laser_w"],
+        },
+        "description": "Два лазерных модуля. Быстрый, но с маленьким трюмом.",
     },
 ]
 

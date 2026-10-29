@@ -260,6 +260,7 @@ SYSTEM_SLOTS = {
     "hull":    ["scanner_h", "sealant_h", "bottle_l"],
     "weapon":  ["laser_w", "launcher_w"],
     "shield":  ["shield_gen"],
+    "engine2": ["pipe_m", "gear_m", "bearing_m"],
 }
 
 # Имена систем (для отображения)
@@ -270,6 +271,7 @@ SYSTEM_NAMES = {
     "hull":    "Корпус",
     "weapon":  "Оружие",
     "shield":  "Щит",
+    "engine2": "Двигатель 2",
 }
 
 # --- Инвентарь ---

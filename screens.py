@@ -692,7 +692,9 @@ class StationScreen:
         draw_text(surface, "Состояние систем:", (info_x, y),
                   size=22, color=UI_TEXT)
         y += S(30)
-        for sid in ("engine", "reactor", "o2gen", "hull"):
+        for sid in ("engine", "engine2", "reactor", "o2gen", "hull"):
+            if sid not in self.systems.systems:
+                continue
             s = self.systems.systems[sid]
             col = UI_OK if s.state == "ok" else (
                 UI_WARN if s.state == "warn" else UI_DANGER)
@@ -1147,8 +1149,11 @@ class RepairScreen:
             "Закрыть", self.close, font_size=24)
 
         self.system_buttons = []
-        ids = ["engine", "reactor", "o2gen", "hull", "weapon", "shield"]
+        ids = ["engine", "engine2", "reactor", "o2gen", "hull",
+               "weapon", "shield"]
         for i, sid in enumerate(ids):
+            if sid not in systems.systems:
+                continue
             cb = (lambda sid_=sid: self.select_system(sid_))
             btn = Button((S(60), S(160) + i * S(70), S(420), S(60)),
                          "", cb, font_size=22)

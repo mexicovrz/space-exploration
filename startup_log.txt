@@ -30,12 +30,18 @@
 ### calling main()
 ### main() entered
 ### before start menu
-### has_save = False
+### has_save = True
 ### start menu created
 ### start menu exited
 ### entering main loop
 ### signal spawn check: tier=1, existing=0
-### signal roll: 0.18 vs chance 0.3
-### signal spawn check: tier=1, existing=1
-### signal roll: 0.32 vs chance 0.3
+### signal roll: 0.43 vs chance 0.3
 ### unlucky, no signal
+### signal spawn check: tier=1, existing=0
+### signal roll: 0.49 vs chance 0.3
+### unlucky, no signal
+### signal spawn check: tier=1, existing=0
+### signal roll: 0.34 vs chance 0.3
+### unlucky, no signal
+### signal spawn check: tier=1, existing=0
+### signal roll: 0.21 vs chance 0.3

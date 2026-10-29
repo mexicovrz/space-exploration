@@ -62,6 +62,7 @@ O2 КАБ.!	O2 CABIN!
 Трюм:	Cargo:
 Кредиты:	Credits:
 Станция:	Station:
+Двигатель 2	Engine 2
 Корабль:	Ship:
 Состояние систем:	System Status:
 Системы:	Systems:
@@ -246,9 +247,9 @@ O2-генератор	O2 generator
 Скиталец	Wanderer
 Стандартный корабль. Сбалансированные характеристики.	Standard ship with balanced stats.
 Тягач	Hauler
-Тяжёлый грузовик. Большой трюм, но медленный и жрёт топливо.	Heavy freighter. Large cargo hold, but slow and fuel-hungry.
+Два двигателя: второй сохраняет ход при поломке первого. Большой трюм.	Twin engines: the second keeps you moving if the first fails. Large cargo hold.
 Курьер	Courier
-Быстрый и экономичный. Маленький трюм.	Fast and fuel-efficient, with a small cargo hold.
+Два лазерных модуля. Быстрый, но с маленьким трюмом.	Dual laser modules. Fast, but with a small cargo hold.
 Эхо аномалии	Anomaly Echo
 Пролог	Prologue
 Эпоха Врат	The Gate Age

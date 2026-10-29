@@ -1095,7 +1095,9 @@ def draw_ship_panel():
                           size=18, color=UI_WARN)
 
     from data import SYSTEM_NAMES
-    for sid in ("engine", "reactor", "o2gen", "hull"):
+    for sid in ("engine", "engine2", "reactor", "o2gen", "hull"):
+        if sid not in systems.systems:
+            continue
         sys = systems.systems[sid]
         pct = sys.hp_pct
         if sys.state == "dead":
