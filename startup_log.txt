@@ -35,5 +35,5 @@
 ### start menu exited
 ### entering main loop
 ### signal spawn check: tier=1, existing=0
-### signal roll: 0.48 vs chance 0.3
+### signal roll: 0.72 vs chance 0.3
 ### unlucky, no signal

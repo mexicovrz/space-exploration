@@ -2644,14 +2644,13 @@ class LoadMissileScreen:
         self._build_buttons()
 
     def _build_buttons(self):
-        from data import AMMO_BY_ID
         self.load_buttons = []
         w = S(240)
         h = S(60)
         x = S(900)
         y = S(250)
         gap = S(80)
-        for i, row in enumerate(AMMO_DEF):
+        for i, row in enumerate(self.ammo_list):
             aid = row[0]
             cb = (lambda a=aid: self.load_ammo(a))
             btn = Button((x, y + i * gap, w, h),
