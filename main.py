@@ -34,7 +34,7 @@ _log("### pygame OK")
 from data import (FPS, FULLSCREEN, TITLE, DARK_SPACE, UI_TEXT, TIME_SCALES,
                   set_ui_scale, S,
                   DOCK_DISTANCE, GATE_DISTANCE,
-                  FUEL_MAX, O2_MAX, O2_RESERVE_MAX,
+                  O2_MAX, O2_RESERVE_MAX,
                   WORLD_SIZE,
                   UI_ACCENT, UI_OK, UI_WARN, UI_DANGER, UI_BORDER, UI_DIM,
                   SCRAP_BY_ID, VALUABLES_BY_ID, PARTS_BY_ID)
@@ -1026,12 +1026,13 @@ def draw_ship_panel():
     x = rect.x + S(14)
     y = rect.y + S(12)
 
-    draw_text(screen, f"Топливо {systems.fuel:5.1f}", (x, y),
+    fuel_pct = max(0.0, min(1.0, systems.fuel / systems.fuel_max))
+    draw_text(screen, f"Топливо {fuel_pct:.0%}", (x, y),
               size=22, color=UI_TEXT)
     bar = pygame.Rect(x, y + S(28), panel_w - S(28), S(14))
     pygame.draw.rect(screen, (40, 40, 60), bar, border_radius=S(4))
-    fill = int(bar.w * systems.fuel / FUEL_MAX)
-    col = (240, 180, 60) if systems.fuel > 20 else (230, 80, 80)
+    fill = min(bar.w, int(bar.w * fuel_pct))
+    col = (240, 180, 60) if fuel_pct > 0.2 else (230, 80, 80)
     pygame.draw.rect(screen, col,
                      (bar.x, bar.y, fill, bar.h), border_radius=S(4))
     y += S(56)
@@ -1073,14 +1074,11 @@ def draw_ship_panel():
 
     # Ракета заряжена?
     if systems.has_launcher:
-        if systems.loaded_missile is not None:
-            aid, dmg, spd = systems.loaded_missile
-            from data import AMMO_BY_ID
-            name = AMMO_BY_ID.get(aid, {}).get("name", "Ракета")
+        if systems.loaded_missile_count:
             y_rocket = rect.bottom + S(8)
             if player_target is not None and not player_target.dead:
                 y_rocket += S(90)
-            draw_text(screen, f"ЗАРЯЖЕНО: {name}",
+            draw_text(screen, f"ЗАРЯЖЕНО: {systems.loaded_missile_count}",
                       (rect.x + S(14), y_rocket),
                       size=20, color=UI_OK)
         else:
@@ -1727,7 +1725,9 @@ def main():
                             player_fire_timer = systems.weapon_rate
 
                 # --- Ракеты ---
-                if systems.has_launcher and systems.loaded_missile is not None:
+                missile_timer = max(0.0, missile_timer - scaled_dt)
+                if (systems.has_loaded_missile
+                        and missile_timer <= 0):
                     ok_r, dist_r = combat.can_hit(
                         ship.pos, ship.heading, player_target.pos,
                         1500.0)
@@ -1739,6 +1739,7 @@ def main():
                             combat.spawn_missile(
                             ship.pos, player_target, dmg, spd)
                             state.notify("Ракета пущена!")
+                            missile_timer = systems.missile_rate
 
                 if player_target.dead:
                     state.notify(f"{player_target.name} уничтожен")

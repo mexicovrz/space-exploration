@@ -182,11 +182,13 @@ class ShipSystems:
         self.ammo = {}   # {ammo_id: count}
 
         # Заряженная ракета в пусковой установке: (ammo_id, damage, speed) или None
-        self.loaded_missile = None
+        self.loaded_missiles = {}
 
         # Тип корабля
         self.ship_type = STARTING_SHIP_ID
         self.cargo_max = SHIPS_BY_ID[self.ship_type]["cargo_max"]
+        self.fuel_max = SHIPS_BY_ID[self.ship_type].get("fuel_max", FUEL_MAX)
+        self.fuel = min(self.fuel, self.fuel_max)
 
         self.systems = {
             sid: ShipSystem(sid, template)
@@ -237,34 +239,91 @@ class ShipSystems:
             return False
         if self.ammo.get(ammo_id, 0) <= 0:
             return False
-        if not self.has_launcher:
-            return False
-        if self.loaded_missile is not None:
+        launcher_slots = self._launcher_slots()
+        free_slots = [index for index in launcher_slots
+                      if index not in self.loaded_missiles]
+        if not free_slots:
             return False
         self.ammo[ammo_id] -= 1
         if self.ammo[ammo_id] <= 0:
             self.ammo.pop(ammo_id, None)
         params = MISSILE_PARAMS.get(ammo_id, {"damage": 40.0, "speed": 400.0})
-        self.loaded_missile = (ammo_id, params["damage"], params["speed"])
+        self.loaded_missiles[free_slots[0]] = (
+            ammo_id, params["damage"], params["speed"])
         return True
 
     def unload_missile(self):
         """Выгружает ракету обратно в трюм. Возвращает True/False."""
-        if self.loaded_missile is None:
+        if not self.loaded_missiles:
             return False
-        ammo_id, _, _ = self.loaded_missile
+        slot_index = min(self.loaded_missiles)
+        ammo_id, _, _ = self.loaded_missiles.pop(slot_index)
         self.ammo[ammo_id] = self.ammo.get(ammo_id, 0) + 1
-        self.loaded_missile = None
         return True
 
     def fire_loaded_missile(self):
-        """Возвращает (ammo_id, damage, speed) и обнуляет loaded_missile.
-        Или None, если не заряжено."""
-        if self.loaded_missile is None:
+        """Возвращает параметры одной заряженной ракеты или None."""
+        ready = [index for index in self._launcher_slots()
+                 if index in self.loaded_missiles]
+        if not ready:
             return None
-        result = self.loaded_missile
-        self.loaded_missile = None
-        return result
+        return self.loaded_missiles.pop(min(ready))
+
+    @property
+    def loaded_missile(self):
+        """Совместимость со старыми сохранениями и отображением одной ракеты."""
+        if not self.loaded_missiles:
+            return None
+        return self.loaded_missiles[min(self.loaded_missiles)]
+
+    @property
+    def loaded_missile_count(self):
+        return len(self.loaded_missiles)
+
+    @property
+    def launcher_count(self):
+        weapon = self.systems.get("weapon")
+        if weapon is None:
+            return 0
+        return sum(
+            1 for slot in weapon.slots
+            if slot.part is not None
+            and slot.part.info.get("effects", {}).get("is_launcher"))
+
+    @property
+    def can_load_missile(self):
+        return any(index not in self.loaded_missiles
+                   for index in self._launcher_slots())
+
+    @property
+    def has_loaded_missile(self):
+        return any(index in self.loaded_missiles
+                   for index in self._launcher_slots())
+
+    def _launcher_slots(self):
+        weapon = self.systems.get("weapon")
+        if weapon is None:
+            return []
+        return [
+            index for index, slot in enumerate(weapon.slots)
+            if slot.part is not None
+            and not slot.part.is_broken()
+            and slot.part.info.get("effects", {}).get("is_launcher")
+        ]
+
+    def _sync_loaded_missiles(self):
+        weapon = self.systems.get("weapon")
+        installed_launchers = set()
+        if weapon is not None:
+            installed_launchers = {
+                index for index, slot in enumerate(weapon.slots)
+                if slot.part is not None
+                and slot.part.info.get("effects", {}).get("is_launcher")
+            }
+        for index in list(self.loaded_missiles):
+            if index not in installed_launchers:
+                ammo_id, _, _ = self.loaded_missiles.pop(index)
+                self.ammo[ammo_id] = self.ammo.get(ammo_id, 0) + 1
 
     @property
     def missile_rate(self):
@@ -289,16 +348,7 @@ class ShipSystems:
     @property
     def has_launcher(self):
         """Есть ли рабочая пусковая установка?"""
-        w = self.systems.get("weapon", None)
-        if w is None:
-            return False
-        for slot in w.slots:
-            if slot.part is None or slot.part.is_broken():
-                continue
-            effects = slot.part.info.get("effects", {})
-            if effects.get("is_launcher"):
-                return True
-        return False
+        return bool(self._launcher_slots())
 
     # ---------- Ресурсы ----------
 
@@ -332,13 +382,13 @@ class ShipSystems:
         return True
 
     def consume_fuel(self, amount):
-        self.fuel = clamp(self.fuel - amount, 0.0, FUEL_MAX)
+        self.fuel = clamp(self.fuel - amount, 0.0, self.fuel_max)
 
     def refuel(self, amount=None):
         if amount is None:
-            self.fuel = FUEL_MAX
+            self.fuel = self.fuel_max
         else:
-            self.fuel = clamp(self.fuel + amount, 0.0, FUEL_MAX)
+            self.fuel = clamp(self.fuel + amount, 0.0, self.fuel_max)
 
     def refill_o2_reserve(self):
         self.o2_reserve = O2_RESERVE_MAX
@@ -478,6 +528,7 @@ class ShipSystems:
         if not self.add_part_instance(slot.part):
             return False
         slot.part = None
+        self._sync_loaded_missiles()
         self.recompute_effects()
         return True
 
@@ -498,6 +549,7 @@ class ShipSystems:
 
         new_part = self.inventory.pop(idx)
         slot.part = new_part
+        self._sync_loaded_missiles()
         self.recompute_effects()
         return True
 
@@ -593,6 +645,8 @@ class ShipSystems:
 
         self.ship_type = ship_id
         self.cargo_max = target_cargo
+        self.fuel_max = SHIPS_BY_ID[ship_id].get("fuel_max", FUEL_MAX)
+        self.fuel = clamp(self.fuel, 0.0, self.fuel_max)
         for part in returned_parts:
             self.inventory.append(part)
 
@@ -608,9 +662,6 @@ class ShipSystems:
                         and PARTS_BY_ID[old_slot.part.part_id]["tier_for"]
                         == PARTS_BY_ID[slots[index].required_part_id]["tier_for"]):
                     slots[index].part = old_slot.part
-            for index, slot in enumerate(slots):
-                if index >= len(old_slots):
-                    slot.part = PartInstance(slot.required_part_id)
             updated = ShipSystem.__new__(ShipSystem)
             updated.id = sid
             updated.slots = slots
@@ -618,6 +669,7 @@ class ShipSystems:
             updated_systems[sid] = updated
 
         self.systems = updated_systems
+        self._sync_loaded_missiles()
         self.recompute_effects()
         return True
 
@@ -631,6 +683,9 @@ class ShipSystems:
         for sid, extra_slots in SHIPS_BY_ID[ship_id].get(
                 "module_slots", {}).items():
             slots.setdefault(sid, []).extend(extra_slots)
+        for sid, layout in SHIPS_BY_ID[ship_id].get(
+                "module_layout", {}).items():
+            slots[sid] = list(layout)
         return slots
 
     def _parts_returned_by_layout(self, target_slots):
@@ -949,9 +1004,10 @@ class ShipSystems:
             "scrap": self.scrap,
             "valuables": self.valuables,
             "ammo": self.ammo,
-            "loaded_missile": (
-                self.loaded_missile[0]
-                if self.loaded_missile is not None else None),
+            "loaded_missiles": [
+                {"slot": index, "ammo_id": missile[0]}
+                for index, missile in sorted(self.loaded_missiles.items())
+            ],
         }
 
     def apply_dict(self, d, station_lookup):
@@ -973,6 +1029,8 @@ class ShipSystems:
         else:
             self.ship_type = STARTING_SHIP_ID
             self.cargo_max = SHIPS_BY_ID[STARTING_SHIP_ID]["cargo_max"]
+        self.fuel_max = SHIPS_BY_ID[self.ship_type].get("fuel_max", FUEL_MAX)
+        self.fuel = clamp(self.fuel, 0.0, self.fuel_max)
 
         module_slots = self._module_slots(self.ship_type)
         self.systems = {
@@ -1034,13 +1092,32 @@ class ShipSystems:
                 and not isinstance(count, bool)
                 and count > 0
             }
-        loaded_ammo_id = d.get("loaded_missile")
-        if loaded_ammo_id in AMMO_BY_ID:
+        self.loaded_missiles = {}
+        saved_missiles = d.get("loaded_missiles", [])
+        if not isinstance(saved_missiles, list):
+            saved_missiles = []
+        for saved in saved_missiles:
+            if not isinstance(saved, dict):
+                continue
+            slot_index = saved.get("slot")
+            ammo_id = saved.get("ammo_id")
+            if (not isinstance(slot_index, int)
+                    or isinstance(slot_index, bool)
+                    or ammo_id not in AMMO_BY_ID
+                    or slot_index not in self._launcher_slots()
+                    or slot_index in self.loaded_missiles):
+                continue
             params = MISSILE_PARAMS.get(
-                loaded_ammo_id, {"damage": 40.0, "speed": 400.0})
-            self.loaded_missile = (
-                loaded_ammo_id, params["damage"], params["speed"])
-        else:
-            self.loaded_missile = None
+                ammo_id, {"damage": 40.0, "speed": 400.0})
+            self.loaded_missiles[slot_index] = (
+                ammo_id, params["damage"], params["speed"])
+        legacy_ammo_id = d.get("loaded_missile")
+        if not self.loaded_missiles and legacy_ammo_id in AMMO_BY_ID:
+            launcher_slots = self._launcher_slots()
+            if launcher_slots:
+                params = MISSILE_PARAMS.get(
+                    legacy_ammo_id, {"damage": 40.0, "speed": 400.0})
+                self.loaded_missiles[launcher_slots[0]] = (
+                    legacy_ammo_id, params["damage"], params["speed"])
 
         self.recompute_effects()

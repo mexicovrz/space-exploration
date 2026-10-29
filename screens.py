@@ -293,7 +293,7 @@ class StationScreen:
     # --- Услуги ---
 
     def buy_fuel(self):
-        need = FUEL_MAX - self.systems.fuel
+        need = self.systems.fuel_max - self.systems.fuel
         if need <= 0.01:
             return
         cost = need * FUEL_PRICE_PER_UNIT
@@ -625,7 +625,7 @@ class StationScreen:
     def refresh_button_states(self):
         if self.page != PAGE_MAIN:
             return
-        need_fuel = FUEL_MAX - self.systems.fuel
+        need_fuel = self.systems.fuel_max - self.systems.fuel
         cost_fuel = need_fuel * FUEL_PRICE_PER_UNIT if need_fuel > 0.01 else 0
         self.main_buttons[0].text = f"Заправить ({int(cost_fuel)} кр.)"
         need_res = O2_RESERVE_MAX - self.systems.o2_reserve
@@ -676,7 +676,9 @@ class StationScreen:
 
         info_x = panel.x + S(460)
         info_y = panel.y + S(160)
-        draw_text(surface, f"Топливо: {self.systems.fuel:5.1f} / {FUEL_MAX}",
+        fuel_pct = max(
+            0.0, min(1.0, self.systems.fuel / self.systems.fuel_max))
+        draw_text(surface, f"Топливо: {fuel_pct:.0%}",
                   (info_x, info_y), size=24, color=UI_TEXT)
         gen_alive = self.systems.systems["o2gen"].is_functional
         o2_color = UI_OK if gen_alive else (
@@ -929,8 +931,9 @@ class StationScreen:
         draw_text(surface, "Корабль", (S(60), y), size=18, color=UI_WARN)
         draw_text(surface, "Трюм", (S(320), y), size=18, color=UI_WARN)
         draw_text(surface, "Скорость", (S(420), y), size=18, color=UI_WARN)
-        draw_text(surface, "Расход", (S(560), y), size=18, color=UI_WARN)
-        draw_text(surface, "Цена", (S(680), y), size=18, color=UI_WARN)
+        draw_text(surface, "Расход", (S(520), y), size=18, color=UI_WARN)
+        draw_text(surface, "Бак", (S(640), y), size=18, color=UI_WARN)
+        draw_text(surface, "Цена", (S(800), y), size=18, color=UI_WARN)
         pygame.draw.line(surface, UI_BORDER,
                          (S(60), S(212)), (S(1000), S(212)), max(1, S(1)))
 
@@ -959,12 +962,14 @@ class StationScreen:
             draw_text(surface, f"{int(ship['speed_mult']*100)}%",
                       (S(420), y), size=20, color=UI_TEXT)
             draw_text(surface, f"{int(ship['fuel_mult']*100)}%",
-                      (S(560), y), size=20, color=UI_TEXT)
+                      (S(520), y), size=20, color=UI_TEXT)
+            draw_text(surface, f"{int(ship.get('fuel_max', FUEL_MAX))}",
+                      (S(640), y), size=20, color=UI_TEXT)
 
             price_text = "— стартовый —" if ship["price"] == 0 else f"{ship['price']} кр."
             price_col = UI_OK if ship["price"] == 0 else (
                 UI_TEXT if self.systems.money >= ship["price"] else UI_DIM)
-            draw_text(surface, price_text, (S(680), y), size=20, color=price_col)
+            draw_text(surface, price_text, (S(800), y), size=20, color=price_col)
 
             draw_text(surface, ship["description"], (S(80), y + S(28)),
                       size=16, color=UI_DIM)
@@ -2678,11 +2683,13 @@ class LoadMissileScreen:
 
     def load_ammo(self, ammo_id):
         ok = self.systems.load_missile(ammo_id)
-        if ok and self.state:
-            from data import AMMO_BY_ID
-            name = AMMO_BY_ID.get(ammo_id, {}).get("name", "Ракета")
-            self.state.notify(f"Заряжено: {name}")
-            self.close()
+        if ok:
+            if self.state:
+                from data import AMMO_BY_ID
+                name = AMMO_BY_ID.get(ammo_id, {}).get("name", "Ракета")
+                self.state.notify(f"Заряжено: {name}")
+        elif self.state:
+            self.state.notify("Нет свободной ракетницы или ракет")
 
     def handle_event(self, event):
         if not self.active:
@@ -2708,14 +2715,15 @@ class LoadMissileScreen:
                   size=32, color=UI_ACCENT)
 
         # Текущая заряженная
-        if self.systems.loaded_missile is not None:
-            aid, dmg, spd = self.systems.loaded_missile
-            name = AMMO_BY_ID.get(aid, {}).get("name", "Ракета")
-            draw_text(surface, f"Заряжено: {name} (урон {int(dmg)})",
-                      (panel.x + S(20), panel.y + S(60)),
-                      size=24, color=UI_OK)
+        if self.systems.loaded_missile_count:
+            draw_text(
+                surface,
+                f"Заряжено ракет: {self.systems.loaded_missile_count} / "
+                f"{self.systems.launcher_count}",
+                (panel.x + S(20), panel.y + S(60)),
+                size=24, color=UI_OK)
         else:
-            draw_text(surface, "Пусковая пуста",
+            draw_text(surface, f"Заряжено ракет: 0 / {self.systems.launcher_count}",
                       (panel.x + S(20), panel.y + S(60)),
                       size=24, color=UI_DIM)
 
@@ -2738,7 +2746,7 @@ class LoadMissileScreen:
                       size=20, color=UI_ACCENT if have > 0 else color)
 
             # Кнопка — только если есть ракеты
-            if have > 0:
+            if have > 0 and self.systems.can_load_missile:
                 btn = self.load_buttons[i]
                 btn.rect = pygame.Rect(S(900), y, S(240), S(60))
                 btn.draw(surface)

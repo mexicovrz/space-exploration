@@ -50,6 +50,10 @@ _PAIRS = """
 Курс:	Course:
 Топливо	Fuel
 Топливо:	Fuel:
+Бак	Tank capacity
+Броненосец	Battleship
+Второй двигатель нужно установить отдельно. Большой трюм.	Second engine must be installed separately. Large cargo hold.
+Пять слотов вооружения; дополнительные модули нужно купить.	Five weapon slots; additional modules must be purchased.
 O2 каб.	O2 cabin
 O2 КАБ.!	O2 CABIN!
 Баллон	Tank
