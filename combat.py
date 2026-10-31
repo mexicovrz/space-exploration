@@ -6,7 +6,10 @@ from localization import translate
 from data import (NPC_TYPES,
                   SCRAP_DEF, SCRAP_BY_ID,
                   VALUABLES_DEF, VALUABLES_BY_ID,
-                  DEBRIS_LIFETIME, DEBRIS_RADIUS)
+                  DEBRIS_LIFETIME, DEBRIS_RADIUS,
+                  MINE_DAMAGE, MINE_ARM_DELAY,
+                  MINE_TRIGGER_RADIUS, MINE_BLAST_RADIUS,
+                  SHIP_SIZE)
 
 
 # ============================================================
@@ -82,6 +85,69 @@ def can_hit(shooter_pos, shooter_heading, target_pos, radius, arc=None):
     if dist > radius:
         return False, dist
     return True, dist
+
+
+class Mine:
+    def __init__(self, x, y, arm_timer=MINE_ARM_DELAY):
+        self.pos = [float(x), float(y)]
+        self.arm_timer = max(0.0, float(arm_timer))
+        self.pulse = 0.0
+        self.draw_logged = False
+
+    def update(self, dt, npcs, is_wanted=False):
+        self.pulse += dt * 4.0
+        self.arm_timer = max(0.0, self.arm_timer - dt)
+        if self.arm_timer > 0:
+            return False
+        return any(
+            not npc.dead
+            and (is_wanted or not (npc.is_peaceful or npc.is_patrol))
+            and math.hypot(npc.pos[0] - self.pos[0],
+                           npc.pos[1] - self.pos[1]) <= MINE_TRIGGER_RADIUS
+            for npc in npcs)
+
+    def detonate(self, npcs, is_wanted=False):
+        hit_npcs = []
+        for npc in npcs:
+            if (npc.dead
+                    or ((npc.is_peaceful or npc.is_patrol) and not is_wanted)
+                    or math.hypot(
+                    npc.pos[0] - self.pos[0],
+                    npc.pos[1] - self.pos[1]) > MINE_BLAST_RADIUS):
+                continue
+            npc.take_damage(MINE_DAMAGE)
+            hit_npcs.append(npc)
+        return hit_npcs
+
+    def to_dict(self):
+        return {"pos": list(self.pos), "arm_timer": self.arm_timer}
+
+    @staticmethod
+    def from_dict(data):
+        pos = data.get("pos")
+        if (not isinstance(pos, (list, tuple)) or len(pos) != 2):
+            return None
+        try:
+            x, y = float(pos[0]), float(pos[1])
+            arm_timer = float(data.get("arm_timer", 0.0))
+        except (TypeError, ValueError):
+            return None
+        if not (math.isfinite(x) and math.isfinite(y)
+                and math.isfinite(arm_timer)):
+            return None
+        return Mine(x, y, arm_timer)
+
+    def draw(self, surface, camera):
+        import pygame
+        sx, sy = camera.world_to_screen(self.pos)
+        size = max(4, int(18 * camera.zoom))
+        half_size = size // 2
+        rect = pygame.Rect(
+            int(sx) - half_size, int(sy) - half_size, size, size)
+        pygame.draw.rect(surface, (230, 0, 255), rect)
+        pygame.draw.rect(
+            surface, (255, 255, 255), rect,
+            width=max(1, int(2 * camera.zoom)))
 
 
 # ============================================================

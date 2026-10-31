@@ -67,6 +67,9 @@ class StationScreen:
         self.shop_tab_buttons = []
         self.sell_row_buttons = []
         self.ship_buy_buttons = []
+        self.ship_sell_buttons = []
+        self.ship_convoy_buttons = []
+        self.shipyard_buttons = []
         self.ammo_buy_buttons = []
         self._build_ammo_buttons()
 
@@ -90,6 +93,9 @@ class StationScreen:
         self.shop_scroll = 0.0
         self.shop_dragging = False
         self.shop_drag_last_y = 0
+        self.shipyard_scroll = 0.0
+        self.shipyard_dragging = False
+        self.shipyard_drag_last_y = 0
         self.shop_row_h = S(38)
         self.shop_row_gap = S(4)
         self.shop_content_height = len(PARTS_DEF) * (self.shop_row_h + self.shop_row_gap)
@@ -204,6 +210,25 @@ class StationScreen:
             btn = Button((x, y_base + i * gap, w, h),
                          "Купить", cb, font_size=18)
             self.ammo_buy_buttons.append(btn)
+        mine_y = y_base + len(AMMO_DEF) * gap
+        self.ammo_buy_buttons.append(Button(
+            (x, mine_y, w, h), "Купить", self.buy_mine, font_size=18))
+
+    def buy_mine(self):
+        from data import MINE_PRICE
+        if self.systems.money < MINE_PRICE:
+            if self.state:
+                self.state.notify("Не хватает кредитов на мину")
+            return False
+        if not self.systems.add_mine():
+            if self.state:
+                self.state.notify("В трюме нет места для мины")
+            return False
+        self.systems.money -= MINE_PRICE
+        if self.state:
+            self.state.notify(
+                f"Мина куплена: x{self.systems.mine_count}")
+        return True
 
     def buy_ammo_at(self, ammo_id):
         print(f"[AMMO] buy_ammo_at({ammo_id})")
@@ -242,8 +267,10 @@ class StationScreen:
         self.shop_tab = tab
         self.shop_scroll = 0.0
         self.sell_scroll = 0.0
+        self.shipyard_scroll = 0.0
         self.shop_dragging = False
         self.sell_dragging = False
+        self.shipyard_dragging = False
         if tab == "sell":
             self._rebuild_sell_buttons()
         elif tab == "shipyard":
@@ -292,8 +319,17 @@ class StationScreen:
 
     # --- Услуги ---
 
+    def fuel_refill_amount(self):
+        amount = self.systems.fuel_max - self.systems.fuel
+        amount += sum(
+            self.systems.convoy_ship_fuel_max(ship_id)
+            - self.systems.convoy_fuel.get(
+                ship_id, self.systems.convoy_ship_fuel_max(ship_id))
+            for ship_id in self.systems.convoy_ships)
+        return max(0.0, amount)
+
     def buy_fuel(self):
-        need = self.systems.fuel_max - self.systems.fuel
+        need = self.fuel_refill_amount()
         if need <= 0.01:
             return
         cost = need * FUEL_PRICE_PER_UNIT
@@ -301,6 +337,7 @@ class StationScreen:
             return
         self.systems.money -= cost
         self.systems.refuel()
+        self.systems.refuel_convoy()
 
     def refill_o2_reserve(self):
         need = O2_RESERVE_MAX - self.systems.o2_reserve
@@ -323,6 +360,8 @@ class StationScreen:
         self.shop_tab = "buy"
         self.shop_scroll = 0.0
         self.sell_scroll = 0.0
+        self.shipyard_scroll = 0.0
+        self.shipyard_dragging = False
         self._rebuild_sell_buttons()
         self._rebuild_ship_buttons()
         self._build_ammo_buttons()
@@ -419,6 +458,11 @@ class StationScreen:
         total_h = len(self.systems.inventory) * (self.shop_row_h + self.shop_row_gap)
         return max(0.0, total_h - view_h)
 
+    def _max_shipyard_scroll(self):
+        view_h = S(700) - S(220)
+        content_h = len(SPACESHIPS) * S(90)
+        return max(0.0, content_h - view_h)
+
     # --- Магазин: продажа ---
 
     def _rebuild_sell_buttons(self):
@@ -443,15 +487,26 @@ class StationScreen:
 
     def _rebuild_ship_buttons(self):
         self.ship_buy_buttons = []
-        w = S(180)
+        self.ship_sell_buttons = []
+        self.ship_convoy_buttons = []
+        w = S(120)
         h = S(50)
-        x = S(900)
+        x = S(865)
         y = self.shop_view_top + S(20)
         gap = S(90)
         for i, ship in enumerate(SPACESHIPS):
             cb = (lambda sid=ship["id"]: self.buy_ship_at(sid))
-            btn = Button((x, y, w, h), "Купить", cb, font_size=20)
+            btn = Button((x, y, w, h), "Купить", cb, font_size=18)
             self.ship_buy_buttons.append(btn)
+            sell_cb = (lambda sid=ship["id"]: self.sell_ship_at(sid))
+            self.ship_sell_buttons.append(
+                Button((x + S(135), y, w, h), "Продать",
+                       sell_cb, font_size=18))
+            convoy_cb = (lambda sid=ship["id"]:
+                         self.toggle_convoy_ship_at(sid))
+            self.ship_convoy_buttons.append(
+                Button((x + S(270), y, S(90), h), "В конвой",
+                       convoy_cb, font_size=16))
             y += gap
 
     def buy_ship_at(self, ship_id):
@@ -464,6 +519,31 @@ class StationScreen:
         else:
             if self.state:
                 self.state.notify("Не хватает денег или трюм не влезет")
+
+    def sell_ship_at(self, ship_id):
+        refund = self.systems.sell_ship(ship_id)
+        if refund is not None:
+            if self.state:
+                name = SHIPS_BY_ID[ship_id]["name"]
+                self.state.notify(f"Продан корабль: {name} (+{refund} кр.)")
+            self._rebuild_ship_buttons()
+        elif self.state:
+            self.state.notify("Нельзя продать последний корабль или не хватает места")
+
+    def toggle_convoy_ship_at(self, ship_id):
+        available = any(
+            self.systems.ship_type_for_instance(instance_id) == ship_id
+            and instance_id != self.systems.ship_instance_id
+            and instance_id not in self.systems.convoy_ships
+            for instance_id in self.systems.owned_ship_ids)
+        joining = available
+        if self.systems.set_convoy_ship(ship_id, joining):
+            if self.state:
+                name = SHIPS_BY_ID[ship_id]["name"]
+                action = "Добавлен в конвой" if joining else "Убран из конвоя"
+                self.state.notify(f"{action}: {name}")
+        elif self.state:
+            self.state.notify("Текущий корабль или корабль не в собственности")
 
     # --- Контракты ---
 
@@ -506,9 +586,8 @@ class StationScreen:
                 if b.handle_event(event):
                     return
             if self.shop_tab == "shipyard":
-                for b in self.ship_buy_buttons:
-                    if b.handle_event(event):
-                        return
+                if self._handle_shipyard_event(event):
+                    return
                 self.shop_back_button.handle_event(event)
                 return
             if self.shop_tab == "ammo":
@@ -550,6 +629,44 @@ class StationScreen:
             if self.contracts_deliver_button.handle_event(event):
                 return
             return
+
+    def _handle_shipyard_event(self, event):
+        view_top = S(220)
+        view_bottom = S(700)
+        buttons = self.shipyard_buttons
+        if event.type == pygame.MOUSEWHEEL:
+            mouse_y = pygame.mouse.get_pos()[1]
+            if view_top <= mouse_y <= view_bottom:
+                self.shipyard_scroll = max(
+                    0.0,
+                    min(self._max_shipyard_scroll(),
+                        self.shipyard_scroll - event.y * S(45)))
+                return True
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if view_top <= event.pos[1] <= view_bottom:
+                for button in buttons:
+                    if button.handle_event(event):
+                        return True
+                self.shipyard_dragging = True
+                self.shipyard_drag_last_y = event.pos[1]
+                return True
+        elif event.type == pygame.MOUSEMOTION and self.shipyard_dragging:
+            dy = event.pos[1] - self.shipyard_drag_last_y
+            self.shipyard_drag_last_y = event.pos[1]
+            self.shipyard_scroll = max(
+                0.0,
+                min(self._max_shipyard_scroll(),
+                    self.shipyard_scroll - dy))
+            return True
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            if self.shipyard_dragging:
+                self.shipyard_dragging = False
+                return True
+            for button in buttons:
+                if button.handle_event(event):
+                    return True
+        return False
 
     def _handle_contract_list_click(self, event, pairs, take=False):
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -625,7 +742,7 @@ class StationScreen:
     def refresh_button_states(self):
         if self.page != PAGE_MAIN:
             return
-        need_fuel = self.systems.fuel_max - self.systems.fuel
+        need_fuel = self.fuel_refill_amount()
         cost_fuel = need_fuel * FUEL_PRICE_PER_UNIT if need_fuel > 0.01 else 0
         self.main_buttons[0].text = f"Заправить ({int(cost_fuel)} кр.)"
         need_res = O2_RESERVE_MAX - self.systems.o2_reserve
@@ -764,7 +881,11 @@ class StationScreen:
         draw_text(surface, "Вес", (S(680), y), size=18, color=UI_WARN)
         draw_text(surface, "Трюм", (S(760), y), size=18, color=UI_WARN)
         pygame.draw.line(surface, UI_BORDER,
-                         (S(60), S(212)), (S(1000), S(212)), max(1, S(1)))
+                         (S(60), S(212)), (S(1200), S(212)), max(1, S(1)))
+        draw_text(surface, "Покупка", (S(865), y),
+                  size=16, color=UI_WARN)
+        draw_text(surface, "Продать", (S(1000), y),
+                  size=16, color=UI_WARN)
 
         view_rect = pygame.Rect(0, S(220), surface.get_width(),
                                 S(700) - S(220))
@@ -933,26 +1054,65 @@ class StationScreen:
         draw_text(surface, "Скорость", (S(420), y), size=18, color=UI_WARN)
         draw_text(surface, "Расход", (S(520), y), size=18, color=UI_WARN)
         draw_text(surface, "Бак", (S(640), y), size=18, color=UI_WARN)
-        draw_text(surface, "Цена", (S(800), y), size=18, color=UI_WARN)
+        draw_text(surface, "Цена", (S(740), y), size=18, color=UI_WARN)
+        draw_text(surface, "Пересесть", (S(865), y),
+                  size=16, color=UI_WARN)
+        draw_text(surface, "Продать", (S(1000), y),
+                  size=16, color=UI_WARN)
         pygame.draw.line(surface, UI_BORDER,
-                         (S(60), S(212)), (S(1000), S(212)), max(1, S(1)))
-
-        self._rebuild_ship_buttons()
+                         (S(60), S(212)), (S(1230), S(212)), max(1, S(1)))
+        draw_text(surface, "Конвой", (S(1135), y),
+                  size=16, color=UI_WARN)
 
         current_type = self.systems.ship_type
-        y = self.shop_view_top + S(20)
         row_h = S(90)
+        view_top = S(220)
+        view_bottom = S(700)
+        self.shipyard_buttons = []
+        start_y = view_top + S(20) - int(self.shipyard_scroll)
+        view_rect = pygame.Rect(
+            0, view_top, surface.get_width(), view_bottom - view_top)
+        previous_clip = surface.get_clip()
+        surface.set_clip(view_rect)
 
         for i, ship in enumerate(SPACESHIPS):
             sid = ship["id"]
             is_current = (sid == current_type)
+            y = start_y + i * row_h
+            row_rect = pygame.Rect(S(60), y - S(6), S(1170), S(70))
+
+            btn = self.ship_buy_buttons[i]
+            btn.rect = pygame.Rect(S(865), y + S(6), S(120), S(50))
+            sell_btn = self.ship_sell_buttons[i]
+            sell_btn.rect = pygame.Rect(S(1000), y + S(6), S(120), S(50))
+            convoy_btn = self.ship_convoy_buttons[i]
+            convoy_btn.rect = pygame.Rect(S(1135), y + S(6), S(90), S(50))
+
+            owned_count = self.systems.owned_ships.count(sid)
+            convoy_count = sum(
+                self.systems.ship_type_for_instance(instance_id) == sid
+                for instance_id in self.systems.convoy_ships)
+            available_for_convoy = any(
+                self.systems.ship_type_for_instance(instance_id) == sid
+                and instance_id != self.systems.ship_instance_id
+                and instance_id not in self.systems.convoy_ships
+                for instance_id in self.systems.owned_ship_ids)
+            if ship["price"] <= 0 and owned_count:
+                btn.text = "Стартовый"
+                btn.callback = None
+            else:
+                btn.text = "Купить ещё" if owned_count else "Купить"
+                btn.callback = lambda ship_id=sid: self.buy_ship_at(ship_id)
+            convoy_btn.text = (
+                "В конвой" if available_for_convoy else "Убрать")
+
+            if y + S(70) < view_top or y - S(6) > view_bottom:
+                continue
 
             bg_col = (40, 80, 40) if is_current else UI_PANEL
-            pygame.draw.rect(surface, bg_col,
-                             (S(60), y - S(6), S(1080), S(70)),
+            pygame.draw.rect(surface, bg_col, row_rect,
                              border_radius=S(8))
-            pygame.draw.rect(surface, UI_BORDER,
-                             (S(60), y - S(6), S(1080), S(70)),
+            pygame.draw.rect(surface, UI_BORDER, row_rect,
                              width=max(1, S(2)), border_radius=S(8))
 
             draw_text(surface, ship["name"], (S(80), y),
@@ -967,26 +1127,45 @@ class StationScreen:
                       (S(640), y), size=20, color=UI_TEXT)
 
             price_text = "— стартовый —" if ship["price"] == 0 else f"{ship['price']} кр."
-            price_col = UI_OK if ship["price"] == 0 else (
+            if owned_count:
+                price_text = f"в собственности x{owned_count}"
+            price_col = UI_OK if owned_count or ship["price"] == 0 else (
                 UI_TEXT if self.systems.money >= ship["price"] else UI_DIM)
-            draw_text(surface, price_text, (S(800), y), size=20, color=price_col)
+            draw_text(surface, price_text, (S(740), y), size=18, color=price_col)
 
             draw_text(surface, ship["description"], (S(80), y + S(28)),
                       size=16, color=UI_DIM)
 
-            if is_current:
-                draw_text(surface, "— ВЫ ЗДЕСЬ —",
-                          (S(900), y + S(20)),
-                          size=20, color=UI_OK)
-            else:
-                btn = self.ship_buy_buttons[i]
-                btn.rect = pygame.Rect(S(900), y + S(6), S(180), S(50))
-                btn.draw(surface)
+            btn.draw(surface)
+            self.shipyard_buttons.append(btn)
+            if owned_count and len(self.systems.owned_ship_ids) > 1:
+                sell_btn.draw(surface)
+                self.shipyard_buttons.append(sell_btn)
+            if convoy_count or available_for_convoy:
+                convoy_btn.draw(surface)
+                self.shipyard_buttons.append(convoy_btn)
 
-            y += row_h
+        surface.set_clip(previous_clip)
+
+        max_scroll = self._max_shipyard_scroll()
+        if max_scroll > 0.5:
+            track_x = S(1230)
+            track_top = view_top
+            track_h = view_bottom - view_top
+            pygame.draw.rect(surface, (40, 40, 60),
+                             (track_x, track_top, S(6), track_h),
+                             border_radius=S(3))
+            content_h = len(SPACESHIPS) * row_h
+            thumb_h = max(S(30), int(track_h * track_h / content_h))
+            scroll_pct = self.shipyard_scroll / max_scroll
+            thumb_y = track_top + int(
+                (track_h - thumb_h) * scroll_pct)
+            pygame.draw.rect(surface, UI_ACCENT,
+                             (track_x, thumb_y, S(6), thumb_h),
+                             border_radius=S(3))
 
     def _draw_shop_ammo(self, surface, panel):
-        from data import AMMO_DEF
+        from data import AMMO_DEF, MINE_PRICE, MINE_WEIGHT
 
         y = S(190)
         draw_text(surface, "Название", (S(60), y), size=18, color=UI_WARN)
@@ -1026,6 +1205,26 @@ class StationScreen:
             btn.draw(surface)
 
             y += S(70)
+
+        pygame.draw.rect(surface, (28, 34, 52),
+                         (S(60), y, S(1150), S(60)),
+                         border_radius=S(6))
+        mine_fits = (self.systems.total_weight() + MINE_WEIGHT
+                     <= self.systems.cargo_max)
+        mine_color = (UI_TEXT if self.systems.money >= MINE_PRICE
+                      and mine_fits else UI_GREY_FALLBACK)
+        draw_text(surface, "Мина", (S(80), y + S(18)),
+                  size=20, color=mine_color)
+        draw_text(surface, f"{MINE_PRICE} кр.", (S(400), y + S(18)),
+                  size=20, color=mine_color)
+        draw_text(surface, f"{MINE_WEIGHT:.1f}", (S(550), y + S(18)),
+                  size=20, color=mine_color)
+        draw_text(surface, f"x{self.systems.mine_count}",
+                  (S(700), y + S(18)), size=20,
+                  color=UI_ACCENT if self.systems.mine_count else mine_color)
+        btn = self.ammo_buy_buttons[len(AMMO_DEF)]
+        btn.rect = pygame.Rect(S(1060), y + S(15), S(120), S(30))
+        btn.draw(surface)
 
         self.shop_back_button.draw(surface)
 
@@ -2644,10 +2843,12 @@ class PrologueScreen:
 class LoadMissileScreen:
     """Экран заряжания ракеты в пусковую установку."""
 
-    def __init__(self, systems, on_close, state_ref=None):
+    def __init__(self, systems, on_close, state_ref=None,
+                 on_deploy_mine=None):
         self.systems = systems
         self.on_close = on_close
         self.state = state_ref
+        self.on_deploy_mine = on_deploy_mine
         self.active = False
 
         from data import AMMO_DEF
@@ -2656,6 +2857,10 @@ class LoadMissileScreen:
         self.close_button = Button(
             (S(60), S(720), S(200), S(60)),
             "Закрыть", self.close, font_size=24)
+        self.deploy_mine_button = Button(
+            (S(280), S(720), S(320), S(60)),
+            "Сбросить мину", self.deploy_mine, font_size=22)
+        self.action_message = None
 
         self.load_buttons = []
         self._build_buttons()
@@ -2691,10 +2896,57 @@ class LoadMissileScreen:
         elif self.state:
             self.state.notify("Нет свободной ракетницы или ракет")
 
+    def deploy_mine(self):
+        if self.on_deploy_mine is not None:
+            deployed = self.on_deploy_mine(self.systems)
+        else:
+            import sys
+            game = sys.modules.get("__main__")
+            game_systems = getattr(game, "systems", None)
+            game_ship = getattr(game, "ship", None)
+            game_sector = getattr(game, "sector", None)
+            game_combat = getattr(game, "combat", None)
+            if (game_systems is not self.systems or game_ship is None
+                    or game_sector is None or game_combat is None):
+                self.action_message = "Не удалось создать мину в этом секторе"
+                if self.state:
+                    self.state.notify(self.action_message)
+                return
+
+            if not self.systems.take_mine():
+                deployed = False
+            else:
+                mine = game_combat.Mine(*game_ship.pos)
+                game_sector.mines.append(mine)
+                mine_list = [
+                    (round(item.pos[0], 1), round(item.pos[1], 1))
+                    for item in game_sector.mines
+                ]
+                game_log = getattr(game, "_log", None)
+                if callable(game_log):
+                    game_log(
+                        f"Мина сброшена: sector="
+                        f"{getattr(game, 'current_sector_index', '?')}, "
+                        f"pos=({mine.pos[0]:.1f},{mine.pos[1]:.1f}); "
+                        f"список мин в секторе ({len(mine_list)}): "
+                        f"{mine_list!r}")
+                deployed = True
+
+        if deployed:
+            self.action_message = None
+            if self.state:
+                self.state.notify("Мина сброшена")
+            self.close()
+        else:
+            self.action_message = (
+                f"Мин в трюме: x{self.systems.mine_count}")
+
     def handle_event(self, event):
         if not self.active:
             return
         if self.close_button.handle_event(event):
+            return
+        if self.deploy_mine_button.handle_event(event):
             return
         for b in self.load_buttons:
             if b.handle_event(event):
@@ -2742,7 +2994,8 @@ class LoadMissileScreen:
                       size=22, color=color)
             draw_text(surface, f"Урон: {dmg}", (S(450), y + S(10)),
                       size=20, color=color)
-            draw_text(surface, f"В трюме: x{have}", (S(650), y + S(10)),
+            draw_text(surface, f"Ракеты: x{have}",
+                      (S(650), y + S(10)),
                       size=20, color=UI_ACCENT if have > 0 else color)
 
             # Кнопка — только если есть ракеты
@@ -2753,4 +3006,12 @@ class LoadMissileScreen:
 
             y += S(80)
 
+        draw_text(surface, f"Мины в трюме: x{self.systems.mine_count}",
+                  (S(80), S(540)), size=22,
+                  color=UI_ACCENT if self.systems.mine_count else UI_DIM)
+        self.deploy_mine_button.text = translate("Сбросить мину")
+        self.deploy_mine_button.draw(surface)
+        if self.action_message:
+            draw_text(surface, self.action_message,
+                      (S(620), S(738)), size=20, color=UI_DANGER)
         self.close_button.draw(surface)

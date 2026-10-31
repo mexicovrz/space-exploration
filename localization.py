@@ -43,6 +43,18 @@ _PAIRS = """
 КАРТА	MAP
 ИНВ.	INV.
 ЗАРЯД	LOAD
+Мина	Mine
+МИНА	MINE
+Мина сброшена	Mine deployed
+Нет мин в трюме	No mines in cargo
+Мина куплена:	Mine purchased:
+Ракеты:	Missiles:
+Мины в трюме:	Mines in cargo:
+Мин в трюме:	Mines in cargo:
+Мина взорвалась!	Mine detonated!
+Мина куплена	Mine purchased
+В трюме нет места для мины	Not enough cargo space for a mine
+Не хватает кредитов на мину	Not enough credits for a mine
 СОХР.	SAVE
 ПАУЗА	PAUSED
 ЦЕЛЬ:	TARGET:

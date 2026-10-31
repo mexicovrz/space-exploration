@@ -7,6 +7,7 @@ from data import (WORLD_SIZE, STATION_COLOR, GATE_COLOR, ASTEROID_COL,
                   SHIP_ARRIVE_EPS, SHIP_BRAKE_RADIUS,
                   SHIP_TURN_SPEED, SHIP_TURN_SPEED_MOVING,
                   SHIP_MIN_SPEED_FOR_TURN, SHIP_SNAP_ON_TAP, clamp)
+from ships_data import SHIPS_BY_ID
 
 
 def angle_to(a, b):
@@ -136,6 +137,8 @@ class Ship:
         self.vel = [0.0, 0.0]
         self.heading = 0.0
         self.target = None
+        self.max_speed = SHIP_MAX_SPEED
+        self.accel = SHIP_ACCEL
 
     def set_target(self, x, y):
         self.target = [x, y]
@@ -180,14 +183,14 @@ class Ship:
 
         self.heading = turn_towards(self.heading, aim, turn_speed * dt)
 
-        ax = math.cos(desired) * SHIP_ACCEL * thrust_scale
-        ay = math.sin(desired) * SHIP_ACCEL * thrust_scale
+        ax = math.cos(desired) * self.accel * thrust_scale
+        ay = math.sin(desired) * self.accel * thrust_scale
         self.vel[0] += ax * dt
         self.vel[1] += ay * dt
 
         speed = math.hypot(*self.vel)
-        if speed > SHIP_MAX_SPEED:
-            k = SHIP_MAX_SPEED / speed
+        if speed > self.max_speed:
+            k = self.max_speed / speed
             self.vel[0] *= k
             self.vel[1] *= k
 
@@ -208,6 +211,65 @@ class Ship:
         pygame_draw_polygon(surface, (255, 255, 255), [nose, left, right], 2)
 
 
+class ConvoyShip:
+    def __init__(self, ship_id, x, y, instance_id=None):
+        self.ship_id = ship_id
+        self.instance_id = instance_id or ship_id
+        self.pos = [float(x), float(y)]
+        self.heading = 0.0
+        self.fire_timer = 0.0
+        self.speed_mult = SHIPS_BY_ID[ship_id].get("speed_mult", 1.0)
+        self.weapon_damage = (
+            0.0 if SHIPS_BY_ID[ship_id].get("fuel_tanker")
+            else 24.0 if ship_id == "battleship" else 12.0)
+
+    @staticmethod
+    def formation_position(player_pos, player_heading, index):
+        behind = 100 * (index + 1)
+        return [
+            clamp(
+                player_pos[0] - math.cos(player_heading) * behind,
+                0, WORLD_SIZE),
+            clamp(
+                player_pos[1] - math.sin(player_heading) * behind,
+                0, WORLD_SIZE),
+        ]
+
+    def place_in_formation(self, player_pos, player_heading, index):
+        self.pos = self.formation_position(
+            player_pos, player_heading, index)
+        self.heading = player_heading
+
+    def update_follow(self, player_pos, player_heading, index, dt):
+        target = self.formation_position(
+            player_pos, player_heading, index)
+        dx = target[0] - self.pos[0]
+        dy = target[1] - self.pos[1]
+        distance = math.hypot(dx, dy)
+        step = 0.0
+        if distance > 1:
+            self.heading = math.atan2(dy, dx)
+            step = min(distance, 400 * self.speed_mult * dt)
+            self.pos[0] += dx / distance * step
+            self.pos[1] += dy / distance * step
+        self.fire_timer = max(0.0, self.fire_timer - dt)
+        return step
+
+    def draw(self, surface, cam):
+        sx, sy = cam.world_to_screen(self.pos)
+        size = max(8, SHIP_SIZE * 1.15 * cam.zoom)
+        h = self.heading
+        nose = (sx + math.cos(h) * size, sy + math.sin(h) * size)
+        left = (sx + math.cos(h + 2.5) * size,
+                sy + math.sin(h + 2.5) * size)
+        right = (sx + math.cos(h - 2.5) * size,
+                 sy + math.sin(h - 2.5) * size)
+        pygame_draw_polygon(surface, (150, 100, 255), [nose, left, right])
+        pygame_draw_polygon(
+            surface, (235, 220, 255), [nose, left, right],
+            max(2, int(3 * cam.zoom)))
+
+
 class Sector:
     def __init__(self, index, name):
         self.index = index
@@ -218,6 +280,7 @@ class Sector:
         self.asteroids = []
         self.quest_markers = []
         self.npcs = []
+        self.mines = []
 
 
 def make_test_sector():

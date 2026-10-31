@@ -34,14 +34,13 @@ _log("### pygame OK")
 from data import (FPS, FULLSCREEN, TITLE, DARK_SPACE, UI_TEXT, TIME_SCALES,
                   set_ui_scale, S,
                   DOCK_DISTANCE, GATE_DISTANCE,
-                  O2_MAX, O2_RESERVE_MAX,
+                  FUEL_MAX, FUEL_BURN_PER_SEC, O2_MAX, O2_RESERVE_MAX,
                   WORLD_SIZE,
                   UI_ACCENT, UI_OK, UI_WARN, UI_DANGER, UI_BORDER, UI_DIM,
                   SCRAP_BY_ID, VALUABLES_BY_ID, PARTS_BY_ID)
 _log("### data OK")
 
 from ui import Button, draw_text, draw_panel, get_font
-from localization import translate
 _log("### ui OK")
 
 import combat
@@ -177,8 +176,137 @@ _log("### sector loaded")
 _log("### before ship/systems")
 ship = W.Ship(1200, 800)
 systems = ShipSystems()
+convoy_fleet = {}
 camera.x, camera.y = ship.pos
 _log("### ship/systems OK")
+
+
+def sync_convoy_fleet():
+    selected = [
+        instance_id for instance_id in systems.convoy_ships
+        if instance_id != systems.ship_instance_id
+    ]
+    for ship_id in list(convoy_fleet):
+        if ship_id not in selected:
+            del convoy_fleet[ship_id]
+    for index, instance_id in enumerate(selected):
+        ship_id = systems.ship_type_for_instance(instance_id)
+        if instance_id not in convoy_fleet:
+            convoy_fleet[instance_id] = W.ConvoyShip(
+                ship_id, ship.pos[0], ship.pos[1], instance_id)
+            convoy_fleet[instance_id].place_in_formation(
+                ship.pos, ship.heading, index)
+    fleet_ship_ids = [
+        systems.ship_type,
+        *(systems.ship_type_for_instance(instance_id)
+          for instance_id in selected),
+    ]
+    if fleet_ship_ids:
+        fleet_speed = min(
+            W.SHIPS_BY_ID[ship_id].get("speed_mult", 1.0)
+            for ship_id in fleet_ship_ids)
+        for instance_id in selected:
+            convoy_fleet[instance_id].speed_mult = fleet_speed
+    return [convoy_fleet[instance_id] for instance_id in selected]
+
+
+def update_convoy_fleet(dt):
+    escorts = sync_convoy_fleet()
+    for index, escort in enumerate(escorts):
+        if systems.available_flight_fuel() <= 0.01:
+            continue
+        distance_moved = escort.update_follow(
+            ship.pos, ship.heading, index, dt)
+        if distance_moved > 0:
+            ship_data = W.SHIPS_BY_ID[escort.ship_id]
+            burn = (FUEL_BURN_PER_SEC * dt
+                    * ship_data.get("fuel_mult", 1.0))
+            systems.consume_fuel(burn)
+        if escort.fire_timer > 0:
+            continue
+        targets = [
+            npc for npc in sector.npcs
+            if not npc.dead and (
+                npc.npc_type == "pirate"
+                or (systems.is_wanted and npc.npc_type == "patrol"))
+            and math.hypot(
+                npc.pos[0] - escort.pos[0],
+                npc.pos[1] - escort.pos[1]) <= 700
+        ]
+        if not targets:
+            continue
+        target = min(
+            targets,
+            key=lambda npc: math.hypot(
+                npc.pos[0] - escort.pos[0],
+                npc.pos[1] - escort.pos[1]))
+        if target.take_damage(escort.weapon_damage):
+            combat.drop_debris(target)
+        combat.add_hit_flash(
+            escort.pos, target.pos, color=(90, 190, 255))
+        escort.fire_timer = 1.0
+
+
+def switch_to_convoy_ship(ship_id):
+    if ship_id not in systems.convoy_ships:
+        return False
+
+    escort = convoy_fleet.get(ship_id)
+    if escort is None:
+        return False
+
+    new_pos = list(escort.pos)
+    new_heading = escort.heading
+    old_instance_id = systems.ship_instance_id
+
+    ship_model_id = systems.ship_type_for_instance(ship_id)
+    if not systems.activate_ship_instance(ship_id):
+        state.notify("Не хватает места в трюме для смены корабля")
+        return False
+
+    if systems.ship_instance_id != ship_id:
+        return False
+    if old_instance_id != ship_id:
+        systems.set_convoy_ship(
+            systems.ship_type_for_instance(old_instance_id),
+            True, old_instance_id)
+
+    ship.pos = new_pos
+    ship.heading = new_heading
+    ship.vel = [0.0, 0.0]
+    ship.target = None
+    for index, convoy_ship in enumerate(sync_convoy_fleet()):
+        convoy_ship.place_in_formation(ship.pos, ship.heading, index)
+    state.notify(f"Пересели на {W.SHIPS_BY_ID[ship_model_id]['name']}")
+    return True
+
+
+def handle_convoy_double_tap(pos):
+    global last_convoy_tap
+
+    clicked_ship_id = None
+    click_radius = max(S(24), W.SHIP_SIZE * camera.zoom * 1.5)
+    for escort in sync_convoy_fleet():
+        sx, sy = camera.world_to_screen(escort.pos)
+        if math.hypot(pos[0] - sx, pos[1] - sy) <= click_radius:
+            clicked_ship_id = escort.ship_instance_id
+            break
+
+    if clicked_ship_id is None:
+        last_convoy_tap = (None, 0)
+        return False
+
+    now = pygame.time.get_ticks()
+    previous_ship_id, previous_time = last_convoy_tap
+    if (clicked_ship_id == previous_ship_id
+            and now - previous_time <= 450):
+        last_convoy_tap = (None, 0)
+        switch_to_convoy_ship(clicked_ship_id)
+    else:
+        last_convoy_tap = (clicked_ship_id, now)
+        state.notify("Нажмите по кораблю конвоя ещё раз для пересадки")
+    return True
+
 
 def maybe_spawn_signal_for_sector():
     import random as _r
@@ -227,6 +355,7 @@ load_missile_screen = None
 player_target = None
 player_fire_timer = 0.0
 missile_timer = 0.0
+last_convoy_tap = (None, 0)
 
 # Прыжок
 JUMP_COST_MONEY = 50
@@ -235,9 +364,29 @@ JUMP_COST_FUEL = 5.0
 def open_load_missile():
     global load_missile_screen
     load_missile_screen = LoadMissileScreen(
-        systems, on_close=close_load_missile, state_ref=state)
+        systems, on_close=close_load_missile, state_ref=state,
+        on_deploy_mine=deploy_mine)
     load_missile_screen.open()
     state.paused = True
+
+
+def deploy_mine(mine_systems):
+    if not mine_systems.take_mine():
+        _log(
+            f"Сброс мины отклонён: мин в трюме="
+            f"{mine_systems.mine_count}")
+        return False
+    mine = combat.Mine(*ship.pos)
+    sector.mines.append(mine)
+    mine_list = [
+        (round(item.pos[0], 1), round(item.pos[1], 1))
+        for item in sector.mines
+    ]
+    _log(
+        f"Мина сброшена: sector={current_sector_index}, "
+        f"pos=({mine.pos[0]:.1f},{mine.pos[1]:.1f}); "
+        f"список мин в секторе ({len(mine_list)}): {mine_list!r}")
+    return True
 
 
 def close_load_missile():
@@ -475,11 +624,11 @@ def start_jump(target_sector_index):
     if systems.money < JUMP_COST_MONEY:
         state.notify(f"Не хватает денег (нужно {JUMP_COST_MONEY})")
         return
-    if systems.fuel < JUMP_COST_FUEL:
+    if systems.available_flight_fuel() < JUMP_COST_FUEL:
         state.notify(f"Не хватает топлива (нужно {JUMP_COST_FUEL})")
         return
     systems.money -= JUMP_COST_MONEY
-    systems.fuel -= JUMP_COST_FUEL
+    systems.consume_fuel(JUMP_COST_FUEL)
     finish_jump(target_sector_index)
 
 
@@ -517,6 +666,8 @@ def finish_jump(target_idx):
 
     ship.vel = [0.0, 0.0]
     ship.target = None
+    for index, escort in enumerate(sync_convoy_fleet()):
+        escort.place_in_formation(ship.pos, ship.heading, index)
     camera.x, camera.y = ship.pos
     state.paused = False
     state.notify(f"Прибытие: сектор {sector.name}")
@@ -644,6 +795,7 @@ def load_from_save():
         camera.x, camera.y = ship.pos
 
         systems.apply_dict(data.get("systems", {}), station_lookup)
+        sync_convoy_fleet()
 
         state.game_time = data.get("game_time", 0.0)
         state.time_scale_index = data.get("time_scale_index", 0)
@@ -985,6 +1137,13 @@ def draw_world():
         is_target = (npc is player_target)
         npc.draw(screen, camera, is_target=is_target)
 
+    for escort in sync_convoy_fleet():
+        escort.draw(screen, camera)
+
+    # Мины — на общем слое мировых объектов.
+    for mine in sector.mines:
+        mine.draw(screen, camera)
+
     # Сигналы
     combat.draw_signals(screen, camera)
 
@@ -1004,8 +1163,6 @@ def draw_world():
                            max(3, int(6 * camera.zoom)), 2)
 
     ship.draw(screen, camera)
-
-
 # ---------- HUD ----------
 def draw_top_bar():
     top = pygame.Rect(0, 0, WIDTH, S(44))
@@ -1026,13 +1183,12 @@ def draw_ship_panel():
     x = rect.x + S(14)
     y = rect.y + S(12)
 
-    fuel_pct = max(0.0, min(1.0, systems.fuel / systems.fuel_max))
-    draw_text(screen, f"Топливо {fuel_pct:.0%}", (x, y),
+    draw_text(screen, f"Топливо {systems.fuel:5.1f}", (x, y),
               size=22, color=UI_TEXT)
     bar = pygame.Rect(x, y + S(28), panel_w - S(28), S(14))
     pygame.draw.rect(screen, (40, 40, 60), bar, border_radius=S(4))
-    fill = min(bar.w, int(bar.w * fuel_pct))
-    col = (240, 180, 60) if fuel_pct > 0.2 else (230, 80, 80)
+    fill = int(bar.w * systems.fuel / FUEL_MAX)
+    col = (240, 180, 60) if systems.fuel > 20 else (230, 80, 80)
     pygame.draw.rect(screen, col,
                      (bar.x, bar.y, fill, bar.h), border_radius=S(4))
     y += S(56)
@@ -1074,11 +1230,14 @@ def draw_ship_panel():
 
     # Ракета заряжена?
     if systems.has_launcher:
-        if systems.loaded_missile_count:
+        if systems.loaded_missile is not None:
+            aid, dmg, spd = systems.loaded_missile
+            from data import AMMO_BY_ID
+            name = AMMO_BY_ID.get(aid, {}).get("name", "Ракета")
             y_rocket = rect.bottom + S(8)
             if player_target is not None and not player_target.dead:
                 y_rocket += S(90)
-            draw_text(screen, f"ЗАРЯЖЕНО: {systems.loaded_missile_count}",
+            draw_text(screen, f"ЗАРЯЖЕНО: {name}",
                       (rect.x + S(14), y_rocket),
                       size=20, color=UI_OK)
         else:
@@ -1093,9 +1252,7 @@ def draw_ship_panel():
                           size=18, color=UI_WARN)
 
     from data import SYSTEM_NAMES
-    for sid in ("engine", "engine2", "reactor", "o2gen", "hull"):
-        if sid not in systems.systems:
-            continue
+    for sid in ("engine", "reactor", "o2gen", "hull"):
         sys = systems.systems[sid]
         pct = sys.hp_pct
         if sys.state == "dead":
@@ -1218,7 +1375,7 @@ def draw_contracts_panel():
         draw_text(screen, f"-> {target}", (rect.x + S(12), y + S(26)),
                   size=18, color=UI_TEXT)
 
-        surf = get_font(S(18)).render(translate(reward_text), True, col)
+        surf = get_font(S(18)).render(reward_text, True, col)
         screen.blit(surf, (rect.right - surf.get_width() - S(12), y + S(14)))
 
         y += row_h
@@ -1238,6 +1395,42 @@ def draw_minimap():
         HEIGHT - map_size - margin - S(90),
         map_size, map_size
     )
+    if systems.convoy_ships:
+        from ships_data import SHIPS_BY_ID
+
+        row_h = S(26)
+        card_h = row_h * len(systems.convoy_ships) + S(10)
+        fuel_rect = pygame.Rect(
+            rect.x, rect.y - card_h - S(8), rect.w, card_h)
+        draw_panel(screen, fuel_rect)
+        type_counts = {}
+        for index, instance_id in enumerate(systems.convoy_ships):
+            ship_id = systems.ship_type_for_instance(instance_id)
+            ship_data = SHIPS_BY_ID[ship_id]
+            type_counts[ship_id] = type_counts.get(ship_id, 0) + 1
+            fuel_max = systems.convoy_ship_fuel_max(instance_id)
+            fuel = systems.convoy_fuel.get(instance_id, fuel_max)
+            pct = max(0.0, min(1.0, fuel / fuel_max))
+            y = fuel_rect.y + S(5) + row_h * index
+            label = ship_data["name"]
+            if systems.owned_ships.count(ship_id) > 1:
+                label += f" #{type_counts[ship_id]}"
+            draw_text(screen, label, (fuel_rect.x + S(8), y),
+                      size=14, color=UI_TEXT)
+            draw_text(screen, f"{pct:.0%}",
+                      (fuel_rect.right - S(42), y), size=14,
+                      color=UI_TEXT)
+            bar = pygame.Rect(
+                fuel_rect.x + S(105), y + S(6),
+                fuel_rect.w - S(155), S(10))
+            pygame.draw.rect(screen, (40, 40, 60), bar,
+                             border_radius=S(3))
+            color = (90, 210, 120) if pct > 0.25 else (
+                (240, 180, 60) if pct > 0.1 else (230, 80, 80))
+            pygame.draw.rect(
+                screen, color,
+                (bar.x, bar.y, int(bar.w * pct), bar.h),
+                border_radius=S(3))
     draw_panel(screen, rect)
     inner = rect.inflate(-pad * 2, -pad * 2)
 
@@ -1321,14 +1514,14 @@ def draw_minimap():
     pygame.draw.polygon(screen, (255, 255, 255), [nose, left, right], 1)
 
     label = f"Сектор {sector.name}"
-    surf = get_font(S(16)).render(translate(label), True, UI_TEXT)
+    surf = get_font(S(16)).render(label, True, UI_TEXT)
     screen.blit(surf, (rect.x + S(8), rect.y + S(6)))
 
 
 def draw_notification():
     if state.notification_t <= 0:
         return
-    surf = get_font(S(28)).render(translate(state.notification), True, (255, 255, 255))
+    surf = get_font(S(28)).render(state.notification, True, (255, 255, 255))
     r = surf.get_rect(midbottom=(WIDTH // 2, HEIGHT - S(120)))
     pad = S(12)
     bg = pygame.Rect(r.x - pad, r.y - pad, r.w + pad * 2, r.h + pad * 2)
@@ -1349,6 +1542,16 @@ def apply_ship_effects():
     from data import SHIP_MAX_SPEED, SHIP_ACCEL
     speed_mult = (systems.effects.get("speed_mult", 1.0)
                   * systems.get_ship_speed_mult())
+    convoy_ship_ids = [
+        systems.ship_type,
+        *(systems.ship_type_for_instance(instance_id)
+          for instance_id in systems.convoy_ships),
+    ]
+    if len(convoy_ship_ids) > 1:
+        convoy_speed = min(
+            W.SHIPS_BY_ID[ship_id].get("speed_mult", 1.0)
+            for ship_id in convoy_ship_ids)
+        speed_mult = min(speed_mult, convoy_speed)
     accel_mult = (systems.effects.get("accel_mult", 1.0)
                   * systems.get_ship_accel_mult())
     ship.max_speed = SHIP_MAX_SPEED * speed_mult
@@ -1380,12 +1583,12 @@ def game_over():
                 running = False
 
         screen.fill((8, 0, 0))
-        surf = font_big.render(translate("ВАШ КОРАБЛЬ УНИЧТОЖЕН"),
+        surf = font_big.render("ВАШ КОРАБЛЬ УНИЧТОЖЕН",
                                True, (230, 80, 80))
         rect = surf.get_rect(center=(WIDTH // 2, HEIGHT // 2 - S(60)))
         screen.blit(surf, rect)
 
-        surf2 = font_small.render(translate("Тапните, чтобы начать заново"),
+        surf2 = font_small.render("Тапните, чтобы начать заново",
                                   True, (240, 240, 240))
         rect2 = surf2.get_rect(center=(WIDTH // 2, HEIGHT // 2 + S(40)))
         screen.blit(surf2, rect2)
@@ -1663,7 +1866,8 @@ def main():
                             consumed = True
                             break
                 if not consumed and not state.paused:
-                    handle_tap(event.pos)
+                    if not handle_convoy_double_tap(event.pos):
+                        handle_tap(event.pos)
             else:
                 for b in buttons:
                     b.handle_event(event)
@@ -1695,39 +1899,13 @@ def main():
                         player_fire_timer -= scaled_dt
                         if player_fire_timer <= 0:
                             player_target.take_damage(systems.weapon_damage)
-                            emp_duration = systems.weapon_emp_duration
-                            if emp_duration > 0:
-                                player_target.apply_emp(emp_duration)
-                            chain_damage = systems.weapon_chain_damage
-                            if chain_damage > 0:
-                                chain_range = systems.weapon_chain_range
-                                secondary = min(
-                                    (npc for npc in sector.npcs
-                                     if npc is not player_target and not npc.dead
-                                     and npc.npc_type == "pirate"
-                                     and math.hypot(
-                                         npc.pos[0] - player_target.pos[0],
-                                         npc.pos[1] - player_target.pos[1])
-                                     <= chain_range),
-                                    key=lambda npc: math.hypot(
-                                        npc.pos[0] - player_target.pos[0],
-                                        npc.pos[1] - player_target.pos[1]),
-                                    default=None)
-                                if secondary is not None:
-                                    if secondary.take_damage(chain_damage):
-                                        combat.drop_debris(secondary)
-                                    combat.add_hit_flash(
-                                        player_target.pos, secondary.pos,
-                                        color=(120, 220, 255))
                             combat.add_hit_flash(
                                 ship.pos, player_target.pos,
                                 color=(120, 220, 255))
                             player_fire_timer = systems.weapon_rate
 
                 # --- Ракеты ---
-                missile_timer = max(0.0, missile_timer - scaled_dt)
-                if (systems.has_loaded_missile
-                        and missile_timer <= 0):
+                if systems.has_launcher and systems.loaded_missile is not None:
                     ok_r, dist_r = combat.can_hit(
                         ship.pos, ship.heading, player_target.pos,
                         1500.0)
@@ -1739,7 +1917,6 @@ def main():
                             combat.spawn_missile(
                             ship.pos, player_target, dmg, spd)
                             state.notify("Ракета пущена!")
-                            missile_timer = systems.missile_rate
 
                 if player_target.dead:
                     state.notify(f"{player_target.name} уничтожен")
@@ -1768,6 +1945,19 @@ def main():
                 npc.update_ai(scaled_dt, ship.pos, systems, sector,
                               sector.npcs)
                 npc.update_motion(scaled_dt)
+
+            update_convoy_fleet(scaled_dt)
+
+            for mine in list(sector.mines):
+                if not mine.update(
+                        scaled_dt, sector.npcs, systems.is_wanted):
+                    continue
+                hit_npcs = mine.detonate(sector.npcs, systems.is_wanted)
+                for npc in hit_npcs:
+                    if npc.dead:
+                        combat.drop_debris(npc)
+                sector.mines.remove(mine)
+                state.notify("Мина взорвалась!")
 
             sector.npcs = [n for n in sector.npcs if not n.dead]
 

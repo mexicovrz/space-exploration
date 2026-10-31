@@ -180,12 +180,20 @@ class ShipSystems:
         
         # Боеприпасы
         self.ammo = {}   # {ammo_id: count}
+        self.mine_count = 0
 
         # Заряженная ракета в пусковой установке: (ammo_id, damage, speed) или None
         self.loaded_missiles = {}
 
         # Тип корабля
         self.ship_type = STARTING_SHIP_ID
+        self.owned_ships = [self.ship_type]
+        self.owned_ship_ids = ["ship-1"]
+        self.ship_instance_types = {"ship-1": self.ship_type}
+        self.ship_instance_id = "ship-1"
+        self.next_ship_instance_id = 2
+        self.convoy_ships = []
+        self.convoy_fuel = {}
         self.cargo_max = SHIPS_BY_ID[self.ship_type]["cargo_max"]
         self.fuel_max = SHIPS_BY_ID[self.ship_type].get("fuel_max", FUEL_MAX)
         self.fuel = min(self.fuel, self.fuel_max)
@@ -362,13 +370,13 @@ class ShipSystems:
         return self.ammo.get(ammo_id, 0)
 
     def ammo_weight(self):
-        from data import AMMO_BY_ID
+        from data import AMMO_BY_ID, MINE_WEIGHT
         total = 0.0
         for aid, cnt in self.ammo.items():
             info = AMMO_BY_ID.get(aid)
             if info:
                 total += info["weight"] * cnt
-        return total
+        return total + MINE_WEIGHT * self.mine_count
 
     def take_ammo(self, ammo_id="missile_ammo", count=1):
         have = self.ammo.get(ammo_id, 0)
@@ -381,8 +389,50 @@ class ShipSystems:
             self.ammo[ammo_id] = left
         return True
 
+    def add_mine(self):
+        from data import MINE_WEIGHT
+        if self.total_weight() + MINE_WEIGHT > self.cargo_max:
+            return False
+        self.mine_count += 1
+        return True
+
+    def take_mine(self):
+        if self.mine_count <= 0:
+            return False
+        self.mine_count -= 1
+        return True
+
+    def available_flight_fuel(self):
+        total = max(0.0, self.fuel)
+        tanker_id = self.convoy_tanker_id()
+        if tanker_id is not None and self.ship_type != "fuel_tanker":
+            total += max(0.0, self.convoy_fuel.get(tanker_id, 0.0))
+        return total
+
+    def convoy_tanker_id(self):
+        return next(
+            (instance_id for instance_id in self.convoy_ships
+             if self.ship_instance_types.get(instance_id) == "fuel_tanker"),
+            None)
+
     def consume_fuel(self, amount):
-        self.fuel = clamp(self.fuel - amount, 0.0, self.fuel_max)
+        remaining = max(0.0, float(amount))
+        consumed = 0.0
+        tanker_id = self.convoy_tanker_id()
+        tanker_is_reserve = (
+            tanker_id is not None
+            and self.ship_type != "fuel_tanker")
+
+        if tanker_is_reserve and remaining > 0.0:
+            tanker_fuel = max(0.0, self.convoy_fuel.get(tanker_id, 0.0))
+            tanker_use = min(tanker_fuel, remaining)
+            self.convoy_fuel[tanker_id] = tanker_fuel - tanker_use
+            remaining -= tanker_use
+            consumed += tanker_use
+
+        ship_use = min(max(0.0, self.fuel), remaining)
+        self.fuel -= ship_use
+        return consumed + ship_use
 
     def refuel(self, amount=None):
         if amount is None:
@@ -640,7 +690,10 @@ class ShipSystems:
         returned_parts = self._parts_returned_by_layout(target_slots)
         target_cargo = SHIPS_BY_ID[ship_id]["cargo_max"]
         returned_weight = sum(part.weight for part in returned_parts)
-        if self.total_weight() + returned_weight > target_cargo:
+        current_is_tanker = SHIPS_BY_ID[self.ship_type].get("fuel_tanker", False)
+        target_is_tanker = SHIPS_BY_ID[ship_id].get("fuel_tanker", False)
+        if (not current_is_tanker and not target_is_tanker
+                and self.total_weight() + returned_weight > target_cargo):
             return False
 
         self.ship_type = ship_id
@@ -668,9 +721,61 @@ class ShipSystems:
             updated.hp_bonus = old_system.hp_bonus if old_system else 0.0
             updated_systems[sid] = updated
 
+        for sid, part_ids in SHIPS_BY_ID[ship_id].get(
+                "starting_modules", {}).items():
+            system = updated_systems.get(sid)
+            if system is None:
+                continue
+            for index, part_id in enumerate(part_ids):
+                if (index < len(system.slots)
+                        and system.slots[index].part is None
+                        and PARTS_BY_ID[part_id]["tier_for"]
+                        == PARTS_BY_ID[
+                            system.slots[index].required_part_id]["tier_for"]):
+                    system.slots[index].part = PartInstance(part_id)
+
+        hull = updated_systems.get("hull")
+        if hull is not None:
+            for slot in hull.slots:
+                if slot.part is None:
+                    slot.part = PartInstance(slot.required_part_id)
+                elif slot.part.is_broken():
+                    slot.part.hp = slot.part.hp_max
+
         self.systems = updated_systems
         self._sync_loaded_missiles()
         self.recompute_effects()
+        self.current_shield = clamp(self.current_shield, 0.0, self.shield_max)
+        return True
+
+    def _new_ship_instance_id(self):
+        instance_id = f"ship-{self.next_ship_instance_id}"
+        self.next_ship_instance_id += 1
+        return instance_id
+
+    def ship_type_for_instance(self, instance_id):
+        return self.ship_instance_types.get(instance_id)
+
+    def activate_ship_instance(self, instance_id):
+        ship_id = self.ship_type_for_instance(instance_id)
+        if ship_id is None or instance_id not in self.owned_ship_ids:
+            return False
+        if instance_id == self.ship_instance_id:
+            return True
+
+        old_instance_id = self.ship_instance_id
+        self.convoy_fuel[old_instance_id] = self.fuel
+        if not self.apply_ship_type(ship_id):
+            self.convoy_fuel.pop(old_instance_id, None)
+            return False
+
+        self.ship_instance_id = instance_id
+        self.fuel = clamp(
+            self.convoy_fuel.pop(
+                instance_id, SHIPS_BY_ID[ship_id].get("fuel_max", FUEL_MAX)),
+            0.0, self.fuel_max)
+        if instance_id in self.convoy_ships:
+            self.convoy_ships.remove(instance_id)
         return True
 
     @staticmethod
@@ -704,26 +809,105 @@ class ShipSystems:
     def buy_ship(self, ship_id):
         if ship_id not in SHIPS_BY_ID:
             return False
+
         ship = SHIPS_BY_ID[ship_id]
         price = ship["price"]
+        if price <= 0 and ship_id in self.owned_ships:
+            return False
         if self.money < price:
             return False
-
-        old_ship = SHIPS_BY_ID.get(self.ship_type, None)
-        refund = 0
-        if old_ship is not None:
-            refund = int(old_ship["price"] * 0.3)
 
         target_slots = self._module_slots(ship_id)
         returned_weight = sum(part.weight for part in
                               self._parts_returned_by_layout(target_slots))
-        if self.total_weight() + returned_weight > ship["cargo_max"]:
+        is_tanker = ship.get("fuel_tanker", False)
+        if (not is_tanker
+                and self.total_weight() + returned_weight > ship["cargo_max"]):
             return False
+        old_instance_id = self.ship_instance_id
+        self.convoy_fuel[old_instance_id] = self.fuel
         if not self.apply_ship_type(ship_id):
+            self.convoy_fuel.pop(old_instance_id, None)
             return False
         self.money -= price
-        self.money += refund
+        self.owned_ships.append(ship_id)
+        instance_id = self._new_ship_instance_id()
+        self.owned_ship_ids.append(instance_id)
+        self.ship_instance_types[instance_id] = ship_id
+        self.ship_instance_id = instance_id
+        self.convoy_fuel.pop(instance_id, None)
+        self.fuel = self.fuel_max
         return True
+
+    def set_convoy_ship(self, ship_id, enabled, instance_id=None):
+        if ship_id not in SHIPS_BY_ID:
+            return False
+        if enabled:
+            candidates = [
+                candidate for candidate in self.owned_ship_ids
+                if self.ship_instance_types.get(candidate) == ship_id
+                and candidate != self.ship_instance_id
+                and candidate not in self.convoy_ships
+            ]
+            if instance_id is None:
+                if not candidates:
+                    return False
+                instance_id = candidates[0]
+            if instance_id not in candidates:
+                return False
+            self.convoy_ships.append(instance_id)
+            self.convoy_fuel.setdefault(
+                instance_id, self.convoy_ship_fuel_max(instance_id))
+        else:
+            candidates = [
+                candidate for candidate in self.convoy_ships
+                if self.ship_instance_types.get(candidate) == ship_id
+            ]
+            if instance_id is None:
+                if not candidates:
+                    return False
+                instance_id = candidates[-1]
+            if instance_id not in candidates:
+                return False
+            self.convoy_ships.remove(instance_id)
+        return True
+
+    def convoy_ship_fuel_max(self, instance_id):
+        ship_id = self.ship_type_for_instance(instance_id) or instance_id
+        return SHIPS_BY_ID[ship_id].get("fuel_max", FUEL_MAX)
+
+    def refuel_convoy(self):
+        for instance_id in self.convoy_ships:
+            self.convoy_fuel[instance_id] = self.convoy_ship_fuel_max(
+                instance_id)
+
+    def sell_ship(self, ship_id):
+        instances = [
+            instance_id for instance_id in self.owned_ship_ids
+            if self.ship_instance_types.get(instance_id) == ship_id]
+        if not instances or len(self.owned_ship_ids) <= 1:
+            return None
+
+        instance_id = next(
+            (candidate for candidate in instances
+             if candidate != self.ship_instance_id),
+            instances[0])
+        if instance_id == self.ship_instance_id:
+            replacement_id = next(
+                candidate for candidate in self.owned_ship_ids
+                if candidate != instance_id)
+            if not self.activate_ship_instance(replacement_id):
+                return None
+
+        self.owned_ship_ids.remove(instance_id)
+        self.owned_ships.remove(ship_id)
+        if instance_id in self.convoy_ships:
+            self.convoy_ships.remove(instance_id)
+        self.convoy_fuel.pop(instance_id, None)
+        self.ship_instance_types.pop(instance_id, None)
+        refund = int(SHIPS_BY_ID[ship_id]["price"] * 0.5)
+        self.money += refund
+        return refund
 
     def get_ship_speed_mult(self):
         ship = SHIPS_BY_ID.get(self.ship_type, None)
@@ -831,7 +1015,7 @@ class ShipSystems:
 
     @property
     def has_fuel(self):
-        return self.fuel > 0.01
+        return self.available_flight_fuel() > 0.01
 
     @property
     def has_o2(self):
@@ -991,6 +1175,13 @@ class ShipSystems:
             "o2_reserve": self.o2_reserve,
             "current_shield": self.current_shield,
             "ship_type": self.ship_type,
+            "owned_ships": list(self.owned_ships),
+            "owned_ship_ids": list(self.owned_ship_ids),
+            "ship_instance_types": dict(self.ship_instance_types),
+            "ship_instance_id": self.ship_instance_id,
+            "next_ship_instance_id": self.next_ship_instance_id,
+            "convoy_ships": list(self.convoy_ships),
+            "convoy_fuel": dict(self.convoy_fuel),
             "is_wanted": self.is_wanted,
             "systems": {sid: sys.to_dict() for sid, sys in self.systems.items()},
             "inventory": [p.to_dict() for p in self.inventory],
@@ -1004,6 +1195,7 @@ class ShipSystems:
             "scrap": self.scrap,
             "valuables": self.valuables,
             "ammo": self.ammo,
+            "mine_count": self.mine_count,
             "loaded_missiles": [
                 {"slot": index, "ammo_id": missile[0]}
                 for index, missile in sorted(self.loaded_missiles.items())
@@ -1029,6 +1221,105 @@ class ShipSystems:
         else:
             self.ship_type = STARTING_SHIP_ID
             self.cargo_max = SHIPS_BY_ID[STARTING_SHIP_ID]["cargo_max"]
+        saved_owned_ships = d.get("owned_ships", [self.ship_type])
+        if not isinstance(saved_owned_ships, list):
+            saved_owned_ships = []
+        self.owned_ships = [
+            ship_id for ship_id in saved_owned_ships
+            if isinstance(ship_id, str) and ship_id in SHIPS_BY_ID]
+        if self.ship_type not in self.owned_ships:
+            self.owned_ships.append(self.ship_type)
+
+        saved_instance_types = d.get("ship_instance_types", {})
+        saved_instance_ids = d.get("owned_ship_ids", [])
+        if (isinstance(saved_instance_types, dict)
+                and isinstance(saved_instance_ids, list)
+                and saved_instance_ids):
+            valid_instances = {
+                instance_id: saved_instance_types[instance_id]
+                for instance_id in saved_instance_ids
+                if isinstance(instance_id, str)
+                and saved_instance_types.get(instance_id) in SHIPS_BY_ID
+            }
+            self.owned_ship_ids = [
+                instance_id for instance_id in saved_instance_ids
+                if instance_id in valid_instances]
+            self.ship_instance_types = valid_instances
+            # Keep the type list in sync with valid instance records.
+            self.owned_ships = [
+                self.ship_instance_types[instance_id]
+                for instance_id in self.owned_ship_ids]
+        else:
+            self.owned_ship_ids = []
+            self.ship_instance_types = {}
+            for index, owned_type in enumerate(self.owned_ships, 1):
+                instance_id = f"ship-{index}"
+                self.owned_ship_ids.append(instance_id)
+                self.ship_instance_types[instance_id] = owned_type
+
+        active_instance_id = d.get("ship_instance_id")
+        if (active_instance_id not in self.ship_instance_types
+                or self.ship_instance_types[active_instance_id]
+                != self.ship_type):
+            active_instance_id = next(
+                (instance_id for instance_id in self.owned_ship_ids
+                 if self.ship_instance_types[instance_id] == self.ship_type),
+                None)
+        if active_instance_id is None:
+            active_instance_id = self._new_ship_instance_id()
+            self.owned_ship_ids.append(active_instance_id)
+            self.ship_instance_types[active_instance_id] = self.ship_type
+            self.owned_ships.append(self.ship_type)
+        self.ship_instance_id = active_instance_id
+        try:
+            saved_next_id = int(d.get("next_ship_instance_id", 1))
+        except (TypeError, ValueError):
+            saved_next_id = 1
+        existing_ids = [
+            int(instance_id[5:])
+            for instance_id in self.owned_ship_ids
+            if instance_id.startswith("ship-")
+            and instance_id[5:].isdigit()
+        ]
+        self.next_ship_instance_id = max(
+            saved_next_id, max(existing_ids, default=0) + 1)
+
+        saved_convoy_ships = d.get("convoy_ships", [])
+        if not isinstance(saved_convoy_ships, list):
+            saved_convoy_ships = []
+        self.convoy_ships = []
+        used_instances = {self.ship_instance_id}
+        for saved_id in saved_convoy_ships:
+            if (isinstance(saved_id, str)
+                    and saved_id in self.ship_instance_types
+                    and saved_id not in used_instances):
+                self.convoy_ships.append(saved_id)
+                used_instances.add(saved_id)
+                continue
+            # Legacy saves listed convoy members by ship model.
+            if saved_id in SHIPS_BY_ID:
+                instance_id = next(
+                    (candidate for candidate in self.owned_ship_ids
+                     if candidate not in used_instances
+                     and self.ship_instance_types[candidate] == saved_id),
+                    None)
+                if instance_id is not None:
+                    self.convoy_ships.append(instance_id)
+                    used_instances.add(instance_id)
+        saved_convoy_fuel = d.get("convoy_fuel", {})
+        if not isinstance(saved_convoy_fuel, dict):
+            saved_convoy_fuel = {}
+        self.convoy_fuel = {}
+        for instance_id in self.owned_ship_ids:
+            ship_id = self.ship_instance_types[instance_id]
+            fuel_max = self.convoy_ship_fuel_max(instance_id)
+            try:
+                fuel = float(saved_convoy_fuel.get(
+                    instance_id, saved_convoy_fuel.get(ship_id, fuel_max)))
+            except (TypeError, ValueError):
+                fuel = fuel_max
+            if instance_id != self.ship_instance_id:
+                self.convoy_fuel[instance_id] = clamp(fuel, 0.0, fuel_max)
         self.fuel_max = SHIPS_BY_ID[self.ship_type].get("fuel_max", FUEL_MAX)
         self.fuel = clamp(self.fuel, 0.0, self.fuel_max)
 
@@ -1092,6 +1383,10 @@ class ShipSystems:
                 and not isinstance(count, bool)
                 and count > 0
             }
+        saved_mines = d.get("mine_count", 0)
+        self.mine_count = (
+            saved_mines if isinstance(saved_mines, int)
+            and not isinstance(saved_mines, bool) and saved_mines > 0 else 0)
         self.loaded_missiles = {}
         saved_missiles = d.get("loaded_missiles", [])
         if not isinstance(saved_missiles, list):

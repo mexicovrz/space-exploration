@@ -36,7 +36,7 @@ UI_DANGER    = (230, 80, 80)
 UI_OK        = (90, 210, 120)
 UI_DIM = (150, 150, 160)
 
-SHIP_COLOR   = (120, 220, 255)
+SHIP_COLOR   = (50, 255, 80)
 STATION_COLOR= (140, 200, 140)
 GATE_COLOR   = (220, 180, 90)
 ASTEROID_COL = (90, 90, 100)
@@ -251,6 +251,13 @@ MISSILE_PARAMS = {
     "missile_ammo":  {"damage": 40.0, "speed": 400.0},
     "missile_heavy": {"damage": 80.0, "speed": 250.0},
 }
+
+MINE_PRICE = 1200
+MINE_WEIGHT = 1.5
+MINE_DAMAGE = 1000.0
+MINE_ARM_DELAY = 1.0
+MINE_TRIGGER_RADIUS = 45.0
+MINE_BLAST_RADIUS = 110.0
 
 # --- Слоты систем ---
 SYSTEM_SLOTS = {
