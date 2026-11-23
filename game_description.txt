@@ -1,0 +1,187 @@
+SPACE EXPLORATION
+Detailed Game Description and Station-Expansion Design
+
+OVERVIEW
+
+Space Exploration is a 2D, top-down space survival and trading simulator designed for Android phones and tablets. The player is a pilot stranded in an unfamiliar galaxy after a crash. Their ship is damaged, its jump drive is destroyed, and the route home is unknown. To survive and eventually return, the player explores sectors, visits stations, trades, completes contracts and story quests, repairs and upgrades their ship, and survives encounters with pirates and other dangers.
+
+The game’s established features center on ship management, sector exploration, trading, contracts, combat, NPCs, and a four-quest story. This description also includes a proposed player-built station and scripting expansion. Those station-building and in-game programming features are design goals, not features represented as already implemented in the current game.
+
+THE STORY
+
+The player begins as a crash survivor in a remote part of the galaxy. Their jump engine no longer works, leaving them unable to travel home. Other survivors, mechanics, traders, and researchers offer leads and assistance, but restoring a jump drive requires a series of jobs and rare components.
+
+The planned story chain consists of four quests:
+
+1. Medications for the Fort — Engineer Hanna asks the player to deliver medicine to a station affected by a fever outbreak. Helping her earns a reward and an introduction to Gustav, a mechanic familiar with jump cores.
+2. The Argentina Blueprints — Gustav needs data from the wreck of the ship Argentina. The player travels to the wreck, retrieves its data cartridge, and returns with information that could help restore the jump engine.
+3. The Mobius Catalyst — Academic Lina needs a catalyst for the jump core. The player follows a lead to a trader and completes the required delivery before returning to Lina.
+4. Return Home — With the jump core prepared, the player travels to the final sector and reaches the home system.
+
+Dialogue and quest rewards connect these missions into a progression through stations and sectors. Quests can involve delivering cargo, visiting a sector or landmark, retrieving information, or reaching a destination. Rewards can include money and useful ship parts.
+
+CORE GAMEPLAY
+
+The established gameplay loop is to travel, trade or take on work, keep the ship in working order, handle threats, and gradually make progress toward getting home:
+
+- Fly through a sector and navigate to stations, gates, ships, and points of interest.
+- Dock at stations to trade, access services, accept contracts, and speak with quest characters.
+- Earn money from deliveries, trade, salvage, and unwanted equipment.
+- Repair worn or damaged ship systems and install better parts.
+- Explore connected sectors, investigate available signals, and advance the story.
+- Choose when to fight, flee, or avoid a threat.
+
+The game is intended to reward planning and resource management. Money spent on a new ship or weapon is money that cannot be spent on repairs or other equipment, and a damaged ship is more vulnerable on the next journey.
+
+EXPLORATION AND GALAXY TRAVEL
+
+The galaxy contains 20 procedurally generated sectors. Sectors are connected by gates, with gate travel requiring money and fuel. Each sector has stations and other points of interest to discover. The galaxy map shows sectors the player has visited and their neighboring connections, so routes are revealed through exploration rather than shown in full from the beginning. Progress across sectors is saved.
+
+Within a sector, the player sets a course by tapping the map. A mini-map provides a local view, while the galaxy map helps plan longer journeys. Gates allow travel between sectors, and stations provide places to trade, repair, take contracts, and meet important NPCs.
+
+SHIP SYSTEMS, PARTS, AND SHIP TYPES
+
+The ship has six core systems: engine, reactor, oxygen generator, hull, weapons, and shields. Each system has three equipment slots. Parts wear down over time, so maintenance and replacement are part of regular play. MK2 parts can provide improvements such as increased speed, lower fuel use, or additional HP.
+
+The three documented ship types offer different trade-offs:
+
+- Scavenger — the balanced starting ship.
+- Hauler — a slower ship with a large cargo hold of 150 capacity.
+- Courier — a fast, fuel-efficient ship with a smaller cargo hold of 50 capacity.
+
+Ship choice affects how the player approaches travel, cargo contracts, trading, and combat. Equipment and the condition of each system also affect readiness for a journey or fight.
+
+REPAIR AND SURVIVAL
+
+The repair interface lets players inspect ship systems and replace parts with equipment carried in the hold or purchased at a station. Worn parts have reduced value when sold, and a damaged component can compromise the ship’s performance. The hull is especially important: if it is destroyed, the player dies. Keeping the ship maintained and avoiding fights when poorly equipped are central survival considerations.
+
+The player also has to manage cargo space and decide which parts, salvage, and other items to keep, sell, or use. Repairing with a suitable part already in the hold can save money, while a shop can provide replacements when needed.
+
+TRADING, CONTRACTS, AND PROGRESSION
+
+Stations provide shops where players can buy and sell ship parts. Sale prices reflect condition: new parts are worth more than worn ones. Scrap and trophies can be sold, and a shipyard offers the option to purchase another ship type.
+
+Cargo delivery contracts provide a dependable way to earn money by moving goods between stations. Trading creates another opportunity: purchase items where they are inexpensive and sell them where demand or prices are better. Salvage from defeated pirates may include scrap, trophies such as gold, gems, or artifacts, and sometimes equipment.
+
+COMBAT AND NPC SHIPS
+
+Weapons use a hit-scan style of combat. The player can tap an enemy ship to target it; the ship fires automatically when the target is within range. Shields absorb damage first and recover over time, while the hull and ship systems remain at risk. Pirates are hostile and can attack both the player and patrols. The player can fight or attempt to escape.
+
+Other documented NPC roles include neutral traders, fast and peaceful delivery pilots, and powerful patrol ships that protect order. Attacking a peaceful NPC causes the player to become wanted, after which patrols will attack without warning. Combat can yield salvage, but it carries the risk of damage or destruction.
+
+EMERGENCY SIGNALS
+
+If the player installs a scanner in the ship’s hull, temporary emergency signals can appear. A signal lasts five minutes before disappearing and may point to wreckage, an ambush, a trader, a hidden cache, or an empty lead. These events offer optional exploration and risk-reward decisions: investigate for a possible opportunity, or continue with the current plan.
+
+STATIONS AND AUTOMATION — PROPOSED EXPANSION
+
+A planned expansion would let the player build and operate stations. This is a design proposal for future development, not a claim that the current documented game already includes station construction.
+
+The station system is intended to add a long-term management layer to the existing spacefaring game. Instead of building a station through a fixed sequence of locked stages, the player would first undertake a substantial, resource-intensive project to construct a hub. Once the hub is complete, the player could install modules freely, in any order and quantity. Modules would be grouped by purpose—energy, production, logistics, defense, life support, and science or special functions—rather than constrained to a predetermined physical layout or mandatory progression path.
+
+SPACE, ENERGY, AND EXPANSION
+
+Station area is intended to be effectively unlimited; available floor space would not be the main restriction. Energy is the central constraint. Each module would have both active energy use while operating and passive energy use simply to exist, representing needs such as lighting, gravity, or life support. The hub’s own energy demand would increase with its size.
+
+This creates the station’s central planning loop:
+
+Expand the hub and install modules → increase energy demand → expand power generation → secure the fuel or other inputs needed for power → expand storage and logistics → use the resulting capacity to build further.
+
+Energy sources could include fuel-burning reactors, solar panels whose output depends on the sector’s star, thermal sources, and other options. Different sources would create different trade-offs. Batteries or accumulators would be separate modules used to store power, buffer demand, and handle peaks. Station energy and ship energy would be separate systems and would not share a common energy pool.
+
+If generation cannot meet demand, the expected default design is to let the player set module priorities so lower-priority modules are shut down first. Alternative or additional behavior, such as running modules at reduced output, remains an implementation choice.
+
+CONSTRUCTION AND MODULES
+
+Hub and module construction would take in-game time—hours or days—not real-world waiting time. Construction would continue while the mobile app is closed, using elapsed game time when the player returns. A project would progress according to its available materials and energy: missing materials would stall construction, and insufficient energy would slow it.
+
+A construction queue would let players schedule multiple modules or stages to build sequentially. Demolishing and rebuilding would be possible, with a partial refund of construction resources. Construction timers create pauses in which players can plan station priorities, configure logistics, or write and adjust automation scripts.
+
+Each module would have a construction cost, construction duration, active and passive energy costs, and an operational function. Possible module types include:
+
+- Scrap recyclers, parts assemblers, fuel refineries, and module fabricators
+- Storage, docks, and cargo lifts
+- Turrets, shields, and patrol drones
+- Oxygen, gravity, and other life-support systems
+- Repair drones
+- Research facilities, long-range scanners, and jump beacons
+- Batteries or accumulators for energy storage
+
+Production chains are intended to be a core part of station planning. Examples include processing scrap into alloy, alloy into hull panels, and hull panels into hull modules; turning ice into water and oxygen and then into fuel; or refining rare ore into components for jump-drive parts. The player would decide which chains to build and how to balance their inputs, outputs, power, and storage.
+
+STATION SECURITY, MAINTENANCE, AND EVENTS
+
+Player stations would be vulnerable while the player is away. Pirates could attack, creating a reason to build defenses or hire patrols. Station modules would wear down over time, much like ship components, and would need maintenance or replacement.
+
+Random events could require player decisions, including worker unrest, energy leaks, or sabotage. A station might also be blockaded or besieged, restricting access and forcing the player to bring supplies or break through. These threats are intended to make defense, repair capacity, supplies, and contingency planning meaningful parts of station management.
+
+MULTIPLE STATIONS AND LOGISTICS
+
+The expansion is intended to support a network of multiple player-owned stations, not just one base. Stations could specialize in mining, refining, trading, or defense, with resources moved between them by cargo shuttles. Shuttles would be slow and vulnerable to pirates, so routes and shipments would involve risk as well as convenience.
+
+A central dispatcher—one station or system coordinating network-wide logistics—is a desirable design goal. It could help schedule shuttles and resource flows. Logistics would be developed in layers, from manually assigning transfers to setting limits and priorities, and eventually to network-wide scheduling and bottleneck analysis.
+
+RELATIONSHIP BETWEEN STATIONS AND SHIPS
+
+Station facilities would support the player’s ships and provide a reason to return to a home base. A hangar module could store a second ship and allow the player to switch vessels. Where appropriate, station modules and ship equipment would share a unified parts or module system.
+
+Station-based repairs would be cheaper than repairs performed in the field but slower, operating over time as a cycle. A station could also become the player’s respawn point: if the ship is destroyed, the player would return there, with cargo loss as a consequence. These rules are proposed features and would need to be defined and balanced during implementation.
+
+IN-GAME PROGRAMMING AND AUTOMATION — PROPOSED EXPANSION
+
+The proposed station system includes a text-only, Python-like scripting language for players who want detailed control over production and logistics. It would not run real Python. It would be a custom, restricted mini-language with familiar syntax and a small, whitelisted game API.
+
+Scripts would not support imports or access to the device, filesystem, network, or arbitrary system features. They would only be able to query and control approved in-game functions. This keeps the language focused on station automation and allows execution to be bounded for performance, especially on lower-end Android devices.
+
+The minimum planned language features are variables, conditions, loops, and functions, with indentation-based blocks. Lists, dictionaries, strings, and basic math could be added incrementally. Classes are not required for an initial version. Imports would not be available, and error handling would be absent or deliberately simple.
+
+Scripts would be event-driven, with entry points such as a recurring tick, low energy, pirates detected, or a shuttle arriving. Illustrative pseudocode:
+
+    on tick:
+        ...
+
+    on low_energy:
+        ...
+
+    on pirates:
+        ...
+
+    on shuttle_arrived(shuttle):
+        ...
+
+The exact API would be finalized during implementation. Example functions might let scripts check current energy and capacity, inspect the amount of an item in storage, instruct a module to produce an item, send a shuttle between stations, set a module’s energy priority, and write a message to an in-game console. Script-global variables would persist between ticks, allowing scripts to remember counters, previous values, and the current step in a process.
+
+A script error would stop only the affected script and report a message in the console. Other scripts and station modules would continue operating. Execution would be protected by limits on instructions per tick, scripts per station, and the number of stations running scripts; exact limits would be determined during implementation.
+
+The proposed editor is an in-game text editor with syntax highlighting and example scripts or templates that players can copy and adapt. A console displaying log output is the minimum debugging tool. A visual rule builder or visual scripting layer is intentionally not part of this design. Importing or exporting scripts as text or files could be considered later, but is not required for an initial release.
+
+AUTOMATION LAYERS
+
+Automation is intended to work at several levels, so scripting is powerful but not mandatory:
+
+- Level 1 — Direct orders: the player manually assigns resource flows and shuttle routes.
+- Level 2 — Priorities and limits: the player configures module priorities, storage limits, and production caps.
+- Level 3 — Logistics network: the player manages routes between stations, scheduling, a central dispatcher, and bottleneck analysis.
+- Scripting — The player writes custom logic that can combine and extend these controls.
+
+These layers complement one another. A player should be able to operate a useful station using direct orders and settings without writing code, while scripts provide a deeper toolset for players who want to automate complex behavior.
+
+STATION GAMEPLAY LOOP AND DESIGN GOALS
+
+The proposed station loop is:
+
+Build the hub → choose and install modules freely → balance energy → arrange supplies and logistics → automate work with orders, settings, or scripts → observe production and threats → identify bottlenecks → expand, rebuild, and adjust automation.
+
+The design emphasizes depth and player experimentation over early balance or accessibility. Unlimited hub area makes energy—not physical space—the meaningful constraint. Construction takes game time, giving players opportunities to plan and tune automation while projects progress. Free module placement keeps station development open-ended rather than turning it into a fixed, linear tech tree. The scripting layer is text-only and aimed at technically minded players familiar with Python-like syntax.
+
+A suggested conceptual implementation order is to establish the hub, modules, and energy balance first; add construction over game time next; then implement useful priorities and limits so stations can be managed without code; and finally add the restricted Python-like scripting sandbox. This order aims to keep the station feature playable at each stage and prevent scripting from blocking the core building and management experience.
+
+SAVING AND MOBILE PLAY
+
+The currently documented game saves progress, including the state of explored sectors. The station expansion would also need to preserve station layouts, queued construction, resources, module condition, logistics, scripts, and persistent script variables. Since construction is intended to continue while the app is closed, elapsed-time handling and saving would be important parts of that system’s implementation.
+
+SUMMARY
+
+Space Exploration is a mobile space-survival game about surviving a crash, rebuilding a damaged ship, earning money, exploring an unknown galaxy, and finding a path home. Its established gameplay includes sector travel, station visits, trading, delivery contracts, ship maintenance and upgrades, pirate combat, NPC encounters, temporary scanner signals, and a four-quest story leading to the home system.
+
+The proposed expansion adds a second, deeper management game: construct a hub, install modules without fixed placement stages, manage energy as the key constraint, build production chains, maintain defenses, run logistics between multiple stations, and automate operations through direct orders, priorities, and an optional restricted Python-like scripting language. Together, the two layers would let players progress from a stranded pilot into both a capable explorer and the operator of an automated station network.
