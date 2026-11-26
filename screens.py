@@ -5,7 +5,7 @@ import pygame
 import math
 import galaxy
 from data import (UI_PANEL, UI_BORDER, UI_TEXT, UI_ACCENT, UI_OK,
-                  UI_WARN, UI_DANGER, UI_DIM, S,
+                  UI_WARN, UI_DANGER, UI_DIM, S, WORLD_SIZE,
                   FUEL_MAX, O2_MAX, O2_RESERVE_MAX,
                   FUEL_PRICE_PER_UNIT, O2_RESERVE_REFILL_PRICE,
                   PARTS_DEF, PARTS_BY_ID, SYSTEM_SLOTS, SYSTEM_NAMES,
@@ -24,8 +24,12 @@ PAGE_SHOP = "shop"
 PAGE_CONTRACTS = "contracts"
 PAGE_ACTIVE = "active"
 PAGE_DELIVER = "deliver"
+PAGE_PLAYER_STATIONS = "player_stations"
 
 UI_GREY_FALLBACK = (120, 120, 130)
+
+_HELP_MOTION_EVENTS = (pygame.MOUSEMOTION, getattr(pygame, "FINGERMOTION", -1))
+_HELP_RELEASE_EVENTS = (pygame.MOUSEBUTTONUP, getattr(pygame, "FINGERUP", -1))
 
 # Колбэк для открытия StoryScreen
 _story_screen_callback = None
@@ -41,6 +45,682 @@ def format_time(sec):
     m = sec // 60
     s = sec % 60
     return f"{m}:{s:02d}"
+
+
+# ============================================================
+#                   PLAYER STATION MANAGER
+# ============================================================
+
+class PlayerStationScreen:
+    """Manager for player-built stations, modules, resources and scripts."""
+
+    def __init__(self, network, systems, on_close=None, state_ref=None,
+                 current_sector=0, current_position=None, selected_id=None,
+                 on_save=None):
+        self.network = network
+        self.systems = systems
+        self.on_close = on_close
+        self.on_save = on_save
+        self.state = state_ref
+        self.current_sector = int(current_sector)
+        self.current_position = list(current_position or (WORLD_SIZE // 2,
+                                                           WORLD_SIZE // 2))
+        self.active = True
+        self.selected_id = selected_id or (
+            network.stations[0].id if network.stations else None)
+        self.close_button = Button((S(1120), S(20), S(140), S(50)),
+                                   translate("Закрыть"), self.close,
+                                   font_size=22)
+        self.action_message = ""
+        self.view = "manager"
+        self.script_help = False
+        self.script_cursor = 0
+        self.script_scroll = 0
+        self.help_scroll = 0
+        self.help_drag = False
+        self.help_drag_y = 0
+        self.help_bar_rect = pygame.Rect(0, 0, 0, 0)
+        self.help_thumb_rect = pygame.Rect(0, 0, 0, 0)
+        self._help_total = 0
+        self._help_visible = 1
+        self._help_cache_key = None
+        self._help_cache_lines = ()
+        self.script_editor_rect = pygame.Rect(0, 0, 0, 0)
+        self.script_output_rect = pygame.Rect(0, 0, 0, 0)
+        self.script_button_rect = pygame.Rect(S(740), S(54), S(160), S(50))
+        self.script_toolbar = {}
+
+    def close(self):
+        self.active = False
+        self._stop_text_input()
+        if self.on_close:
+            self.on_close()
+
+    def open(self):
+        self.active = True
+
+    def refresh_button_states(self):
+        pass
+
+    def build_station(self):
+        from station import Station
+        name = f"Аванпост {len(self.network.stations) + 1}"
+        station = Station(name, sector=self.current_sector,
+                          position=self.current_position)
+        self.network.stations.append(station)
+        self.selected_id = station.id
+        self.action_message = translate("Станция построена")
+        if self.state:
+            self.state.notify(self.action_message)
+
+    def select_station(self, station_id):
+        self.selected_id = station_id
+
+    def _start_text_input(self):
+        try:
+            pygame.key.start_text_input()
+        except (AttributeError, pygame.error):
+            pass
+
+    def _stop_text_input(self):
+        try:
+            pygame.key.stop_text_input()
+        except (AttributeError, pygame.error):
+            pass
+
+    def _enter_script_view(self):
+        station = self.selected_station()
+        if station is None:
+            return
+        self.view = "script"
+        self.script_help = False
+        self.help_scroll = 0
+        self.help_drag = False
+        self.script_cursor = len(station.script)
+        self._start_text_input()
+
+    def _leave_script_view(self):
+        self.view = "manager"
+        self.help_drag = False
+        self._stop_text_input()
+
+    def _edit_script(self, text):
+        station = self.selected_station()
+        if station is None or not text:
+            return
+        source = station.script
+        if len(source) + len(text) > 5000:
+            self.action_message = translate("Достигнут лимит 5000 символов")
+            return
+        station.script = source[:self.script_cursor] + text + source[self.script_cursor:]
+        self.script_cursor += len(text)
+        self.script_scroll = max(0, station.script[:self.script_cursor].count("\n") - 18)
+
+    def _move_script_cursor_vertical(self, direction):
+        station = self.selected_station()
+        if station is None:
+            return
+        source = station.script
+        line_start = source.rfind("\n", 0, self.script_cursor) + 1
+        column = self.script_cursor - line_start
+        if direction < 0:
+            if line_start == 0:
+                return
+            previous_end = line_start - 1
+            previous_start = source.rfind("\n", 0, previous_end) + 1
+            self.script_cursor = previous_start + min(column, previous_end - previous_start)
+        else:
+            next_start = source.find("\n", self.script_cursor)
+            if next_start < 0:
+                return
+            next_start += 1
+            next_end = source.find("\n", next_start)
+            if next_end < 0:
+                next_end = len(source)
+            self.script_cursor = next_start + min(column, next_end - next_start)
+
+    def _help_lines(self, font, width):
+        """Translated and wrapped reference lines for the script editor."""
+        from station_script_docs import DOC_LINES, DOC_LINES_EN
+
+        key = (get_language(), width, font.get_height())
+        if self._help_cache_key == key:
+            return self._help_cache_lines
+        source = DOC_LINES_EN if get_language() == "en" else DOC_LINES
+        max_width = max(S(60), width - S(24))
+        lines = []
+        for raw_line in source:
+            text = translate(raw_line)
+            indent = text[:len(text) - len(text.lstrip(" "))]
+            words = text[len(indent):].split()
+            limit = max(S(40), max_width - font.size(indent)[0])
+            current = ""
+            for word in words:
+                candidate = word if not current else current + " " + word
+                if current and font.size(candidate)[0] > limit:
+                    lines.append(indent + current)
+                    current = word
+                    while len(current) > 1 and font.size(current)[0] > limit:
+                        cut = len(current) - 1
+                        while cut > 1 and font.size(current[:cut])[0] > limit:
+                            cut -= 1
+                        lines.append(indent + current[:cut])
+                        current = current[cut:]
+                else:
+                    current = candidate
+            lines.append(indent + current)
+        self._help_cache_key = key
+        self._help_cache_lines = tuple(lines)
+        return self._help_cache_lines
+
+    def _help_max_scroll(self):
+        return max(0, self._help_total - self._help_visible)
+
+    def _set_help_scroll(self, value):
+        self.help_scroll = max(0, min(float(value), self._help_max_scroll()))
+
+    def _scroll_help(self, lines):
+        self._set_help_scroll(self.help_scroll + lines)
+
+    def _scroll_help_pixels(self, pixels):
+        self._set_help_scroll(self.help_scroll - pixels / max(1, S(24)))
+
+    def _draw_help_scrollbar(self, surface, area, total, visible, max_scroll):
+        bar_width = max(S(6), S(10))
+        bar = pygame.Rect(area.right - bar_width - S(2), area.y,
+                          bar_width, area.height)
+        self.help_bar_rect = bar
+        self.help_thumb_rect = pygame.Rect(bar.x, bar.y, 0, 0)
+        pygame.draw.rect(surface, (10, 18, 30), bar, border_radius=S(3))
+        if not max_scroll:
+            return
+        thumb_height = min(bar.height,
+                           max(S(30), int(bar.height * visible / total)))
+        travel = max(1, bar.height - thumb_height)
+        thumb_y = bar.y + int(travel * self.help_scroll / max_scroll)
+        thumb = pygame.Rect(bar.x, thumb_y, bar.width, thumb_height)
+        self.help_thumb_rect = thumb
+        pygame.draw.rect(surface, UI_ACCENT, thumb, border_radius=S(3))
+
+    def selected_station(self):
+        return next((station for station in self.network.stations
+                     if station.id == self.selected_id), None)
+
+    def build_hub(self):
+        station = self.selected_station()
+        if station is None:
+            return
+        try:
+            station.queue_hub()
+            self.action_message = translate("Строительство хаба начато")
+        except ValueError as exc:
+            self.action_message = str(exc)
+
+    def build_module(self, module_id):
+        station = self.selected_station()
+        if station is None:
+            return
+        try:
+            station.queue_module(module_id)
+            self.action_message = translate("Модуль поставлен в очередь")
+        except ValueError as exc:
+            self.action_message = str(exc)
+
+    def run_selected_script(self):
+        station = self.selected_station()
+        if station is None:
+            return
+        ok, message = self.network.run_script(station.id)
+        self.action_message = translate("Скрипт выполнен") if ok else message
+
+    def save_selected_script(self):
+        station = self.selected_station()
+        if station is not None:
+            station.script = station.script[:5000]
+            if self.on_save:
+                self.on_save()
+            self.action_message = translate("Скрипт сохранён")
+
+    def buy_material(self, item, amount=5):
+        from station import MATERIALS
+        material = MATERIALS.get(item)
+        if material is None or self.systems is None:
+            return
+        cost = material["price"] * amount
+        if self.systems.money < cost:
+            self.action_message = translate("Не хватает кредитов")
+            return
+        if not self.systems.add_construction_material(item, amount):
+            self.action_message = translate("Недостаточно места в трюме")
+            return
+        self.systems.money -= cost
+        self.action_message = translate("Куплено:") + f" {amount} {translate(material['name'])}"
+
+    def transfer_material(self, item, amount=5):
+        station = self.selected_station()
+        if station is None or self.systems is None:
+            return
+        available = float(self.systems.construction_materials.get(item, 0))
+        moved = min(float(amount), available)
+        if moved <= 0 or not self.systems.take_construction_material(item, moved):
+            self.action_message = translate("Нет материалов для передачи")
+            return
+        station.add_resources(item, moved)
+        self.action_message = translate("Передано:") + f" {moved:g} {item}"
+
+    def _handle_script_event(self, event):
+        station = self.selected_station()
+        if station is None:
+            self._leave_script_view()
+            return
+
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button in (4, 5):
+                delta = 3 if event.button == 5 else -3
+                if self.script_help:
+                    self._scroll_help(delta)
+                else:
+                    self.script_scroll = max(0, self.script_scroll + delta)
+                return
+            if event.button != 1:
+                return
+            for name, rect in self.script_toolbar.items():
+                if rect.collidepoint(event.pos):
+                    if name == "back":
+                        self._leave_script_view()
+                    elif name == "run":
+                        self.run_selected_script()
+                    elif name == "help":
+                        self.script_help = not self.script_help
+                        self.help_drag = False
+                        if self.script_help:
+                            self.help_scroll = 0
+                    elif name == "save":
+                        self.save_selected_script()
+                    return
+            if self.script_help:
+                if not self._help_max_scroll():
+                    return
+                if self.help_thumb_rect.collidepoint(event.pos):
+                    self.help_drag = True
+                    self.help_drag_y = event.pos[1]
+                elif self.help_bar_rect.collidepoint(event.pos):
+                    travel = max(1, self.help_bar_rect.height
+                                 - self.help_thumb_rect.height)
+                    fraction = ((event.pos[1] - self.help_bar_rect.y
+                                 - self.help_thumb_rect.height / 2) / travel)
+                    self._set_help_scroll(fraction * self._help_max_scroll())
+                    self.help_drag = True
+                    self.help_drag_y = event.pos[1]
+                elif self.script_editor_rect.collidepoint(event.pos):
+                    self.help_drag = True
+                    self.help_drag_y = event.pos[1]
+                return
+            if self.script_editor_rect.collidepoint(event.pos):
+                lines = station.script.split("\n")
+                font = get_font(S(18))
+                line_height = S(24)
+                visible_line = max(
+                    0, (event.pos[1] - self.script_editor_rect.y - S(8))
+                    // line_height)
+                line_index = min(len(lines) - 1,
+                                 visible_line + self.script_scroll)
+                text_x = self.script_editor_rect.x + S(48)
+                local_x = max(0, event.pos[0] - text_x)
+                column = 0
+                for candidate in range(len(lines[line_index]) + 1):
+                    if font.size(lines[line_index][:candidate])[0] >= local_x:
+                        break
+                    column = candidate
+                self.script_cursor = (sum(len(line) + 1 for line in lines[:line_index])
+                                      + column)
+            return
+
+        if self.help_drag and event.type in _HELP_MOTION_EVENTS:
+            buttons = getattr(event, "buttons", None)
+            if buttons is not None and not buttons[0]:
+                self.help_drag = False
+                return
+            pos = getattr(event, "pos", None)
+            if pos is not None:
+                self._scroll_help_pixels(pos[1] - self.help_drag_y)
+                self.help_drag_y = pos[1]
+            return
+
+        if self.help_drag and event.type in _HELP_RELEASE_EVENTS:
+            self.help_drag = False
+            return
+
+        if self.script_help:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    self.script_help = False
+                    self.help_drag = False
+                elif event.key == pygame.K_UP:
+                    self._scroll_help(-1)
+                elif event.key == pygame.K_DOWN:
+                    self._scroll_help(1)
+                elif event.key == pygame.K_PAGEUP:
+                    self._scroll_help(-self._help_visible)
+                elif event.key == pygame.K_PAGEDOWN:
+                    self._scroll_help(self._help_visible)
+                elif event.key == pygame.K_HOME:
+                    self._set_help_scroll(0)
+                elif event.key == pygame.K_END:
+                    self._set_help_scroll(self._help_max_scroll())
+            return
+        if event.type == pygame.TEXTINPUT:
+            self._edit_script(event.text)
+            return
+        if event.type != pygame.KEYDOWN:
+            return
+
+        source = station.script
+        if event.key == pygame.K_ESCAPE:
+            self._leave_script_view()
+        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            if event.mod & pygame.KMOD_CTRL:
+                self.run_selected_script()
+                return
+            line_start = source.rfind("\n", 0, self.script_cursor) + 1
+            prefix = source[line_start:self.script_cursor]
+            indent = len(prefix) - len(prefix.lstrip(" "))
+            if prefix.rstrip().endswith(":"):
+                indent += 4
+            self._edit_script("\n" + " " * indent)
+        elif event.key == pygame.K_BACKSPACE:
+            if self.script_cursor > 0:
+                station.script = source[:self.script_cursor - 1] + source[self.script_cursor:]
+                self.script_cursor -= 1
+        elif event.key == pygame.K_DELETE:
+            if self.script_cursor < len(source):
+                station.script = source[:self.script_cursor] + source[self.script_cursor + 1:]
+        elif event.key == pygame.K_LEFT:
+            self.script_cursor = max(0, self.script_cursor - 1)
+        elif event.key == pygame.K_RIGHT:
+            self.script_cursor = min(len(source), self.script_cursor + 1)
+        elif event.key == pygame.K_HOME:
+            self.script_cursor = source.rfind("\n", 0, self.script_cursor) + 1
+        elif event.key == pygame.K_END:
+            line_end = source.find("\n", self.script_cursor)
+            self.script_cursor = len(source) if line_end < 0 else line_end
+        elif event.key == pygame.K_UP:
+            self._move_script_cursor_vertical(-1)
+        elif event.key == pygame.K_DOWN:
+            self._move_script_cursor_vertical(1)
+        elif event.key == pygame.K_TAB:
+            self._edit_script("    ")
+        self.script_scroll = max(0, station.script[:self.script_cursor].count("\n") - 18)
+
+    def handle_event(self, event):
+        if not self.active:
+            return
+        if self.close_button.handle_event(event):
+            return
+
+        if self.view == "script":
+            self._handle_script_event(event)
+            return
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx, my = event.pos
+            if self.selected_station() and self.script_button_rect.collidepoint(mx, my):
+                self._enter_script_view()
+                return
+            if not self.network.stations:
+                rect = pygame.Rect(S(80), S(150), S(300), S(70))
+                if rect.collidepoint(mx, my):
+                    self.build_station()
+                return
+
+            y = S(150)
+            for station in self.network.stations:
+                rect = pygame.Rect(S(60), y, S(300), S(56))
+                if rect.collidepoint(mx, my):
+                    self.select_station(station.id)
+                    return
+                y += S(64)
+
+            station = self.selected_station()
+            if station is None:
+                return
+
+            actions = [("Хаб", self.build_hub)]
+            from station import MODULES
+            for module_id in ("solar_array", "battery", "cargo_bay",
+                              "scrap_recycler", "parts_assembler",
+                              "turret", "life_support", "shipyard",
+                              "railgun_forge"):
+                actions.append((MODULES[module_id].name,
+                                lambda mid=module_id: self.build_module(mid)))
+
+            y = S(150)
+            for label, callback in actions:
+                rect = pygame.Rect(S(410), y, S(300), S(48))
+                if rect.collidepoint(mx, my):
+                    callback()
+                    return
+                y += S(56)
+
+            from station import MATERIALS
+            for index, item in enumerate(MATERIALS):
+                row_y = S(210) + index * S(40)
+                if pygame.Rect(S(980), row_y, S(100), S(32)).collidepoint(mx, my):
+                    self.buy_material(item)
+                    return
+                if pygame.Rect(S(1090), row_y, S(140), S(32)).collidepoint(mx, my):
+                    self.transfer_material(item)
+                    return
+
+    def _draw_script_view(self, surface, panel, screen_w, screen_h):
+        station = self.selected_station()
+        if station is None:
+            draw_text(surface, translate("Станция не выбрана"),
+                      (panel.x + S(24), panel.y + S(80)),
+                      size=24, color=UI_WARN)
+            return
+
+        draw_text(surface, translate("Скрипт станции") + ": " + station.name,
+                  (panel.x + S(20), panel.y + S(14)),
+                  size=28, color=UI_ACCENT)
+        toolbar_y = panel.y + S(60)
+        toolbar_specs = (
+            ("back", translate("Назад"), S(20), S(110)),
+            ("run", translate("Запустить"), S(140), S(130)),
+            ("help", translate("Справка"), S(280), S(130)),
+            ("save", translate("Сохранить"), S(420), S(130)),
+        )
+        self.script_toolbar = {}
+        for name, label, offset, width in toolbar_specs:
+            rect = pygame.Rect(panel.x + offset, toolbar_y, width, S(42))
+            self.script_toolbar[name] = rect
+            pygame.draw.rect(surface, UI_BORDER, rect, border_radius=S(6))
+            draw_text(surface, label, rect.center, size=17,
+                      color=UI_TEXT, center=True)
+
+        top = panel.y + S(112)
+        height = panel.height - S(132)
+        self.script_editor_rect = pygame.Rect(
+            panel.x + S(20), top, panel.width - S(380), height)
+        self.script_output_rect = pygame.Rect(
+            self.script_editor_rect.right + S(16), top,
+            panel.right - self.script_editor_rect.right - S(36), height)
+        pygame.draw.rect(surface, (6, 12, 21), self.script_editor_rect,
+                         border_radius=S(6))
+        pygame.draw.rect(surface, UI_BORDER, self.script_editor_rect,
+                         width=max(1, S(2)), border_radius=S(6))
+        pygame.draw.rect(surface, (6, 12, 21), self.script_output_rect,
+                         border_radius=S(6))
+        pygame.draw.rect(surface, UI_BORDER, self.script_output_rect,
+                         width=max(1, S(2)), border_radius=S(6))
+
+        font = get_font(S(18))
+        line_height = S(24)
+        editor_clip = self.script_editor_rect.inflate(-S(8), -S(8))
+        old_clip = surface.get_clip()
+        surface.set_clip(editor_clip)
+        if self.script_help:
+            doc_lines = self._help_lines(font, editor_clip.width)
+            visible = max(1, editor_clip.height // line_height)
+            max_scroll = max(0, len(doc_lines) - visible)
+            self._help_total = len(doc_lines)
+            self._help_visible = visible
+            self._set_help_scroll(self.help_scroll)
+            start = int(self.help_scroll)
+            for row, text in enumerate(doc_lines[start:start + visible]):
+                rendered = font.render(text, True, UI_TEXT)
+                surface.blit(rendered,
+                             (editor_clip.x + S(8),
+                              editor_clip.y + row * line_height))
+            self._draw_help_scrollbar(surface, editor_clip, len(doc_lines),
+                                      visible, max_scroll)
+        else:
+            lines = station.script.split("\n")
+            cursor_line = station.script[:self.script_cursor].count("\n")
+            visible = max(1, editor_clip.height // line_height)
+            max_scroll = max(0, len(lines) - visible)
+            self.script_scroll = min(max(self.script_scroll, 0), max_scroll)
+            if cursor_line < self.script_scroll:
+                self.script_scroll = cursor_line
+            elif cursor_line >= self.script_scroll + visible:
+                self.script_scroll = cursor_line - visible + 1
+            for row, line_index in enumerate(
+                    range(self.script_scroll,
+                          min(len(lines), self.script_scroll + visible))):
+                y = editor_clip.y + row * line_height
+                if line_index == cursor_line:
+                    pygame.draw.rect(surface, (20, 30, 45),
+                                     (editor_clip.x, y,
+                                      editor_clip.width, line_height))
+                line_number = font.render(str(line_index + 1), True, UI_DIM)
+                surface.blit(line_number, (editor_clip.x + S(4), y))
+                code = font.render(lines[line_index], True, UI_TEXT)
+                surface.blit(code, (editor_clip.x + S(48), y))
+                if line_index == cursor_line:
+                    line_start = station.script.rfind(
+                        "\n", 0, self.script_cursor) + 1
+                    column = self.script_cursor - line_start
+                    caret_x = (editor_clip.x + S(48)
+                               + font.size(lines[line_index][:column])[0])
+                    pygame.draw.line(surface, UI_ACCENT,
+                                     (caret_x, y + S(2)),
+                                     (caret_x, y + line_height - S(2)),
+                                     max(1, S(2)))
+        surface.set_clip(old_clip)
+
+        console_title = get_font(S(18)).render(
+            translate("Консоль скрипта"), True, UI_ACCENT)
+        surface.blit(console_title,
+                     (self.script_output_rect.x + S(10),
+                      self.script_output_rect.y + S(8)))
+        log_lines = station.script_log[-14:]
+        log_font = get_font(S(15))
+        for index, line in enumerate(log_lines):
+            rendered = log_font.render(str(line)[:42], True, UI_TEXT)
+            surface.blit(rendered,
+                         (self.script_output_rect.x + S(10),
+                          self.script_output_rect.y + S(38) + index * S(24)))
+
+    def draw(self, surface, screen_w, screen_h):
+        from station import MATERIALS, MODULES
+        overlay = pygame.Surface((screen_w, screen_h))
+        overlay.set_alpha(220)
+        overlay.fill((8, 10, 22))
+        surface.blit(overlay, (0, 0))
+
+        panel = pygame.Rect(S(40), S(40), screen_w - S(80), screen_h - S(80))
+        draw_panel(surface, panel)
+        if self.view != "script":
+            draw_text(surface, translate("Мои станции"),
+                      (panel.x + S(20), panel.y + S(14)),
+                      size=32, color=UI_ACCENT)
+
+        if self.view == "script":
+            self._draw_script_view(surface, panel, screen_w, screen_h)
+            self.close_button.draw(surface)
+            return
+
+        if not self.network.stations:
+            rect = pygame.Rect(panel.x + S(40), panel.y + S(110),
+                               S(300), S(70))
+            pygame.draw.rect(surface, UI_BORDER, rect, border_radius=S(8))
+            draw_text(surface, translate("Построить аванпост"),
+                      (rect.x + S(18), rect.y + S(20)),
+                      size=24, color=UI_TEXT)
+        else:
+            y = panel.y + S(110)
+            for station in self.network.stations:
+                rect = pygame.Rect(panel.x + S(20), y, S(300), S(56))
+                color = UI_ACCENT if station.id == self.selected_id else UI_BORDER
+                pygame.draw.rect(surface, color, rect, border_radius=S(6),
+                                 width=max(1, S(2)))
+                draw_text(surface,
+                          f"{station.name} • {'хаб' if station.has_hub else 'без хаба'}",
+                          (rect.x + S(12), rect.y + S(14)),
+                          size=20, color=UI_TEXT)
+                y += S(64)
+
+            station = self.selected_station()
+            if station is not None:
+                pygame.draw.rect(surface, UI_BORDER, self.script_button_rect,
+                                 border_radius=S(6))
+                draw_text(surface, translate("Скрипт"),
+                          self.script_button_rect.center,
+                          size=20, color=UI_TEXT, center=True)
+                y = panel.y + S(110)
+                actions = [("Хаб", self.build_hub)]
+                for module_id in ("solar_array", "battery", "cargo_bay",
+                                  "scrap_recycler", "parts_assembler",
+                                  "turret", "life_support", "shipyard",
+                                  "railgun_forge"):
+                    actions.append((MODULES[module_id].name,
+                                    lambda mid=module_id: self.build_module(mid)))
+
+                for label, callback in actions:
+                    rect = pygame.Rect(panel.x + S(370), y, S(300), S(48))
+                    pygame.draw.rect(surface, UI_BORDER, rect, border_radius=S(6))
+                    draw_text(surface, translate(label),
+                              (rect.x + S(12), rect.y + S(11)),
+                              size=18, color=UI_TEXT)
+                    y += S(56)
+
+                draw_text(surface,
+                          f"{translate('Ресурсы:')} {len(station.resources)} {translate('типов')}",
+                          (panel.x + S(700), panel.y + S(110)),
+                          size=20, color=UI_OK)
+                draw_text(surface,
+                          f"{translate('Модули:')} {len(station.modules)}  {translate('Очередь:')} {len(station.queue)}",
+                          (panel.x + S(700), panel.y + S(140)),
+                          size=18, color=UI_ACCENT)
+
+                for index, (item, material) in enumerate(MATERIALS.items()):
+                    y = panel.y + S(170) + index * S(40)
+                    station_amount = float(station.resources.get(item, 0))
+                    cargo_amount = float(self.systems.construction_materials.get(item, 0))
+                    label = (f"{translate(material['name'])}  {station_amount:g}"
+                             f" / {cargo_amount:g}")
+                    draw_text(surface, label,
+                              (panel.x + S(700), y + S(5)),
+                              size=16, color=UI_TEXT)
+                    buy_rect = pygame.Rect(panel.x + S(940), y, S(100), S(32))
+                    transfer_rect = pygame.Rect(panel.x + S(1050), y,
+                                                S(140), S(32))
+                    pygame.draw.rect(surface, UI_BORDER, buy_rect,
+                                     border_radius=S(5))
+                    pygame.draw.rect(surface, UI_BORDER, transfer_rect,
+                                     border_radius=S(5))
+                    draw_text(surface, translate("Купить 5"),
+                              (buy_rect.x + S(5), buy_rect.y + S(7)),
+                              size=14, color=UI_TEXT)
+                    draw_text(surface, translate("Передать 5"),
+                              (transfer_rect.x + S(5), transfer_rect.y + S(7)),
+                              size=14, color=UI_TEXT)
+
+        if self.action_message:
+            draw_text(surface, self.action_message,
+                      (panel.x + S(700), panel.bottom - S(30)),
+                      size=20, color=UI_WARN)
+        self.close_button.draw(surface)
 
 
 # ============================================================

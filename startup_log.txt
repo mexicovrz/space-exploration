@@ -23,6 +23,7 @@
 ### galaxy graph OK
 ### before load sector
 ### sector loaded
+### market stations OK
 ### before ship/systems
 ### ship/systems OK
 ### before buttons
@@ -30,12 +31,13 @@
 ### calling main()
 ### main() entered
 ### before start menu
-### has_save = False
+### has_save = True
 ### start menu created
 ### start menu exited
 ### entering main loop
 ### signal spawn check: tier=1, existing=0
-### signal roll: 0.86 vs chance 0.3
+### signal roll: 0.32 vs chance 0.3
 ### unlucky, no signal
 ### signal spawn check: tier=1, existing=0
-### signal roll: 0.05 vs chance 0.3
+### signal roll: 0.91 vs chance 0.3
+### unlucky, no signal

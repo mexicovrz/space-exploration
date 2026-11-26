@@ -35,6 +35,58 @@ _PAIRS = """
 Купить	Buy
 Продать	Sell
 Верфь	Shipyard
+Мои станции	My Stations
+Скрипт	Script
+Скрипт станции	Station script
+Запустить	Run
+Справка	Help
+Сохранить	Save
+Скрипт выполнен	Script finished
+Скрипт сохранён	Script saved
+Достигнут лимит 5000 символов	5000-character limit reached
+Станция не выбрана	No station selected
+Консоль скрипта	Script console
+Купить 5	Buy 5
+Аванпост	Outpost
+ВАША СТАНЦИЯ	YOUR STATION
+Солнечная батарея	Solar array
+Аккумулятор	Battery
+Переработчик лома	Scrap recycler
+Сборщик деталей	Parts assembler
+Грузовой отсек	Cargo bay
+Защитная турель	Defense turret
+Жизнеобеспечение	Life support
+Кузница рельсовых боеприпасов	Railgun ammunition forge
+Хаб	Hub
+хаб	hub
+без хаба	no hub
+Ресурсы:	Resources:
+типов	types
+Модули:	Modules:
+Очередь:	Queue:
+Передать 5	Transfer 5
+Не хватает кредитов	Not enough credits
+Недостаточно места в трюме	Not enough cargo space
+Куплено:	Purchased:
+Нет материалов для передачи	No materials to transfer
+Передано:	Transferred:
+Построить аванпост	Build outpost
+Станция построена	Station built
+Строительство хаба начато	Hub construction started
+Модуль поставлен в очередь	Module queued
+Металл	Scrap metal
+Пластины	Scrap plates
+Электроника	Electronics
+Топливные ячейки	Fuel cells
+Ракетное топливо	Propellant
+Боевые блоки	Warheads
+Плазменные сердечники	Plasma cores
+Рельсовые сердечники	Rail cores
+Титан	Titanium
+Композит	Composite
+Микросхемы	Circuitry
+Охлаждающая жидкость	Coolant
+Прочный сплав	Advanced alloy
 Боеприпасы	Ammunition
 Продать весь хлам	Sell All Scrap
 Продать все трофеи	Sell All Valuables

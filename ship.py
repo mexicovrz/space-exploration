@@ -177,6 +177,7 @@ class ShipSystems:
         # Хлам и трофеи (лут с пиратов)
         self.scrap = {}        # {scrap_id: количество}
         self.valuables = {}    # {valuable_id: количество}
+        self.construction_materials = {}  # материалы для строительных станций
         
         # Боеприпасы
         self.ammo = {}   # {ammo_id: count}
@@ -615,13 +616,43 @@ class ShipSystems:
                 total += data["weight"]
         return total
 
+    def add_construction_material(self, item_id, count=1):
+        from station import MATERIALS
+        count = float(count)
+        if item_id not in MATERIALS or count <= 0:
+            return False
+        if self.total_weight() + count * MATERIALS[item_id]["weight"] > self.cargo_max:
+            return False
+        self.construction_materials[item_id] = (
+            float(self.construction_materials.get(item_id, 0)) + count)
+        return True
+
+    def take_construction_material(self, item_id, count=1):
+        count = float(count)
+        have = float(self.construction_materials.get(item_id, 0))
+        if count <= 0 or have < count:
+            return False
+        left = have - count
+        if left > 1e-9:
+            self.construction_materials[item_id] = left
+        else:
+            self.construction_materials.pop(item_id, None)
+        return True
+
+    def construction_material_weight(self):
+        from station import MATERIALS
+        return sum(float(count) * MATERIALS[item_id]["weight"]
+                   for item_id, count in self.construction_materials.items()
+                   if item_id in MATERIALS)
+
     def total_weight(self):
         return (self.inventory_weight_total()
                 + self.cargo_weight()
                 + self.quest_cargo_weight()
                 + self.scrap_weight()
                 + self.valuables_weight()
-                + self.ammo_weight())
+                + self.ammo_weight()
+                + self.construction_material_weight())
 
     def can_add_cargo(self, weight):
         return self.total_weight() + weight <= self.cargo_max
@@ -1194,6 +1225,7 @@ class ShipSystems:
             "quest_cargo": self.quest_cargo,
             "scrap": self.scrap,
             "valuables": self.valuables,
+            "construction_materials": dict(self.construction_materials),
             "ammo": self.ammo,
             "mine_count": self.mine_count,
             "loaded_missiles": [
@@ -1212,6 +1244,11 @@ class ShipSystems:
         self.o2_reserve = d.get("o2_reserve", self.o2_reserve)
         self.current_shield = d.get("current_shield", 0.0)
         self.is_wanted = d.get("is_wanted", False)
+        self.construction_materials = {
+            str(item_id): max(0.0, float(count))
+            for item_id, count in d.get("construction_materials", {}).items()
+            if str(item_id) in getattr(__import__("station"), "MATERIALS", {})
+        }
 
         # Тип корабля
         ship_id = d.get("ship_type", STARTING_SHIP_ID)

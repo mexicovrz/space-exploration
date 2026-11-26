@@ -26,6 +26,7 @@ _log("### before imports")
 import sys
 import random
 import math
+import time
 _log("### stdlib OK")
 
 import pygame
@@ -52,11 +53,13 @@ _log("### ship OK")
 from screens import (StationScreen, RepairScreen,
                      ActiveContractsScreen, StartMenuScreen,
                      StoryScreen, ConfirmAttackScreen,
-                     InventoryScreen, PrologueScreen,LoadMissileScreen)
+                     InventoryScreen, PrologueScreen, LoadMissileScreen,
+                     PlayerStationScreen)
 from screens import set_story_screen_callback
 _log("### screens OK")
 
 from story import QUESTS_BY_ID as STORY_QUESTS_BY_ID
+from station import StationNetwork, Station
 _log("### story OK")
 
 import world as W
@@ -173,11 +176,31 @@ _log("### before load sector")
 sector = get_or_create_sector(current_sector_index)
 _log("### sector loaded")
 
+# Every NPC station is also a possible freighter market.
+freighter_market_stations = []
+for market_sector_index in range(GALAXY_TOTAL):
+    market_sector = galaxy.generate_sector(
+        market_sector_index, galaxy._sector_label(market_sector_index),
+        GALAXY_SEED, galaxy_graph.get(market_sector_index, []))
+    for market_station in market_sector.stations:
+        freighter_market_stations.append({
+            "name": market_station.name,
+            "sector": market_sector_index,
+            "position": list(market_station.pos),
+        })
+
+_log("### market stations OK")
 _log("### before ship/systems")
 ship = W.Ship(1200, 800)
 systems = ShipSystems()
 convoy_fleet = {}
 camera.x, camera.y = ship.pos
+
+# Player-built stations, their construction network, and freighters.
+station_network = StationNetwork(
+    [], sector_graph=galaxy_graph,
+    market_stations=freighter_market_stations,
+    systems=systems)
 _log("### ship/systems OK")
 
 
@@ -350,6 +373,7 @@ confirm_attack_screen = None
 inventory_screen = None
 prologue_screen = None
 load_missile_screen = None
+player_station_screen = None
 
 # Цель игрока (NPC)
 player_target = None
@@ -393,6 +417,27 @@ def close_load_missile():
     global load_missile_screen
     load_missile_screen = None
     state.paused = False
+
+
+def open_player_stations(station_id=None):
+    global player_station_screen
+    player_station_screen = PlayerStationScreen(
+        station_network, systems, on_close=close_player_stations,
+        state_ref=state, current_sector=current_sector_index,
+        current_position=ship.pos, selected_id=station_id,
+        on_save=save_now)
+    player_station_screen.open()
+    state.paused = True
+
+
+def close_player_stations():
+    global player_station_screen
+    player_station_screen = None
+    state.paused = False
+    try:
+        save_now()
+    except Exception:
+        pass
 
 # ---------- Функции управления ----------
 def toggle_pause():
@@ -718,6 +763,10 @@ def _collect_state():
         "ship_heading": ship.heading,
         "systems": systems.to_dict(),
         "stations_by_sector": stations_by_sector,
+        # StationNetwork uses wall-clock seconds so its offline simulation can
+        # catch up elapsed time between launches. Keep game_time for gameplay
+        # timers, but do not use it as the network's persistence timestamp.
+        "player_stations": station_network.to_dict(timestamp=time.time()),
     }
 
 
@@ -741,7 +790,7 @@ def load_from_save():
         return False
 
     global sector, current_sector_index
-    global systems, visited_sectors, galaxy_graph
+    global systems, visited_sectors, galaxy_graph, station_network
 
     try:
         seed = data.get("galaxy_seed", GALAXY_SEED)
@@ -798,6 +847,12 @@ def load_from_save():
         sync_convoy_fleet()
 
         state.game_time = data.get("game_time", 0.0)
+        station_network = StationNetwork.from_dict(
+            data.get("player_stations", {}),
+            now=time.time(),
+            sector_graph=galaxy_graph,
+            market_stations=freighter_market_stations,
+            systems=systems)
         state.time_scale_index = data.get("time_scale_index", 0)
 
         try:
@@ -835,6 +890,8 @@ buttons = [
            open_inventory, font_size=24),
     Button((margin * 8 + btn_w * 7, bottom, btn_w, btn_h), "ЗАРЯД",
            open_load_missile, font_size=22),
+    Button((WIDTH - btn_w - margin, S(48), btn_w, btn_h), "СТАНЦИИ",
+           open_player_stations, font_size=20),
 ]
 
 save_btn_w, save_btn_h = S(120), S(36)
@@ -970,6 +1027,23 @@ def handle_tap(pos):
                 state.notify(f"Цель: {npc.name}")
             else:
                 open_confirm_attack(npc)
+            return
+
+    for player_station in station_network.stations:
+        if player_station.sector != current_sector_index:
+            continue
+        d = math.hypot(player_station.position[0] - wx,
+                       player_station.position[1] - wy)
+        if d < 55:
+            dist_to_ship = math.hypot(
+                player_station.position[0] - ship.pos[0],
+                player_station.position[1] - ship.pos[1])
+            if dist_to_ship < DOCK_DISTANCE:
+                open_player_stations(player_station.id)
+            else:
+                ship.set_target(player_station.position[0],
+                                player_station.position[1])
+                state.notify(f"Курс: {player_station.name}")
             return
 
     for st in sector.stations:
@@ -1131,6 +1205,24 @@ def draw_world():
 
     for g in sector.gates:
         g.draw(screen, camera)
+
+    # Player-built stations: marker, name, and construction status.
+    for player_station in station_network.stations:
+        if player_station.sector != current_sector_index:
+            continue
+        sx, sy = camera.world_to_screen(player_station.position)
+        radius = max(S(12), int(42 * camera.zoom))
+        pygame.draw.circle(screen, (70, 220, 255),
+                           (int(sx), int(sy)), radius,
+                           max(2, S(3)))
+        pygame.draw.circle(screen, (20, 90, 130),
+                           (int(sx), int(sy)), max(4, radius // 3))
+        pygame.draw.circle(screen, (220, 250, 255),
+                           (int(sx), int(sy)), max(2, radius // 5))
+        draw_text(screen,
+                  f"{player_station.name} • ВАША СТАНЦИЯ",
+                  (int(sx) + radius + S(8), int(sy) - S(12)),
+                  size=18, color=(70, 220, 255))
 
     # NPC
     for npc in sector.npcs:
@@ -1482,6 +1574,13 @@ def draw_minimap():
         col = npc.color
         pygame.draw.circle(screen, col, (mx, my), max(2, S(3)))
 
+    for player_station in station_network.stations:
+        if player_station.sector != current_sector_index:
+            continue
+        mx, my = w2m(player_station.position)
+        pygame.draw.circle(screen, (70, 220, 255),
+                           (mx, my), max(4, S(6)))
+
     for st in sector.stations:
         mx, my = w2m(st.pos)
         r = max(3, S(5))
@@ -1825,6 +1924,30 @@ def main():
                 pygame.display.flip()
                 continue
 
+        # === МОИ СТАНЦИИ ===
+        if player_station_screen is not None and player_station_screen.active:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif (event.type == pygame.KEYDOWN
+                      and event.key == pygame.K_ESCAPE
+                      and player_station_screen.view != "script"):
+                    close_player_stations()
+                    break
+                else:
+                    player_station_screen.handle_event(event)
+                    if player_station_screen is None:
+                        break
+            if player_station_screen is not None:
+                draw_background()
+                draw_world()
+                for b in buttons:
+                    b.draw(screen)
+                draw_hud()
+                player_station_screen.draw(screen, WIDTH, HEIGHT)
+                pygame.display.flip()
+                continue
+
         # === СТАНЦИЯ ===
         if station_screen is not None:
             for event in pygame.event.get():
@@ -1877,6 +2000,9 @@ def main():
             engines_ok = systems.can_thrust
             has_target = ship.target is not None
             thrust_scale = 1.0 if (engines_ok and has_target) else 0.0
+            # Weapon cooldowns keep progressing while the target is out of
+            # range, so reacquiring a target does not freeze a railgun shot.
+            player_fire_timer = max(0.0, player_fire_timer - scaled_dt)
 
             if not engines_ok and has_target:
                 ship.stop()
@@ -1896,13 +2022,12 @@ def main():
                         ship.pos, ship.heading, player_target.pos,
                         systems.weapon_radius)
                     if ok:
-                        player_fire_timer -= scaled_dt
                         if player_fire_timer <= 0:
                             player_target.take_damage(systems.weapon_damage)
                             combat.add_hit_flash(
                                 ship.pos, player_target.pos,
                                 color=(120, 220, 255))
-                            player_fire_timer = systems.weapon_rate
+                            player_fire_timer = max(0.05, systems.weapon_rate)
 
                 # --- Ракеты ---
                 if systems.has_launcher and systems.loaded_missile is not None:
@@ -1929,6 +2054,7 @@ def main():
             camera.follow(ship.pos, scaled_dt)
 
             systems.update(scaled_dt, thrust_scale)
+            station_network.advance(scaled_dt)
             combat.update_effects(scaled_dt)
             combat.update_debris(scaled_dt)
             combat.update_missiles(scaled_dt)
