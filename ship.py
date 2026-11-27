@@ -10,7 +10,8 @@ from data import (FUEL_MAX, FUEL_BURN_PER_SEC,
                   INVENTORY_MAX_WEIGHT,
                   ACCIDENT_DAMAGE_MIN, ACCIDENT_DAMAGE_MAX,
                   ACCIDENT_COOLDOWN_MIN, ACCIDENT_COOLDOWN_MAX,
-                  START_MONEY, START_FUEL, START_O2, clamp, MISSILE_PARAMS, AMMO_BY_ID)
+                  START_MONEY, START_FUEL, START_O2, clamp, MISSILE_PARAMS,
+                  AMMO_BY_ID, RAILGUN_AMMO)
 from ships_data import SHIPS_BY_ID, STARTING_SHIP_ID
 from data import SCRAP_BY_ID, VALUABLES_BY_ID
 
@@ -185,6 +186,8 @@ class ShipSystems:
 
         # Заряженная ракета в пусковой установке: (ammo_id, damage, speed) или None
         self.loaded_missiles = {}
+        # Заряженный снаряд в рельсотроне: {индекс слота: ammo_id}
+        self.loaded_rail = {}
 
         # Тип корабля
         self.ship_type = STARTING_SHIP_ID
@@ -277,6 +280,106 @@ class ShipSystems:
         if not ready:
             return None
         return self.loaded_missiles.pop(min(ready))
+
+    # ---------- Рельсотрон ----------
+
+    def _railgun_slots(self):
+        weapon = self.systems.get("weapon")
+        if weapon is None:
+            return []
+        return [
+            index for index, slot in enumerate(weapon.slots)
+            if slot.part is not None
+            and not slot.part.is_broken()
+            and slot.part.info.get("effects", {}).get("is_railgun")
+        ]
+
+    @property
+    def has_railgun(self):
+        return bool(self._railgun_slots())
+
+    @property
+    def railgun_count(self):
+        return len(self._railgun_slots())
+
+    @property
+    def can_load_rail(self):
+        return any(index not in self.loaded_rail
+                   for index in self._railgun_slots())
+
+    @property
+    def has_loaded_rail(self):
+        return any(index in self.loaded_rail
+                   for index in self._railgun_slots())
+
+    @property
+    def loaded_rail_count(self):
+        return sum(1 for index in self._railgun_slots()
+                   if index in self.loaded_rail)
+
+    @property
+    def railgun_rate(self):
+        """Секунды между выстрелами рельсотрона."""
+        rates = []
+        for index in self._railgun_slots():
+            slot = self.systems["weapon"].slots[index]
+            effects = slot.part.info.get("effects", {})
+            if "railgun_rate" in effects:
+                rates.append(float(effects["railgun_rate"]))
+        return max(0.2, min(rates)) if rates else 1.4
+
+    @property
+    def railgun_range(self):
+        return 1400.0 if self.has_railgun else 0.0
+
+    def load_rail_ammo(self, ammo_id):
+        """Зарядить один снаряд в свободный рельсотрон."""
+        if ammo_id not in RAILGUN_AMMO:
+            return False
+        if self.ammo.get(ammo_id, 0) <= 0:
+            return False
+        free_slots = [index for index in self._railgun_slots()
+                      if index not in self.loaded_rail]
+        if not free_slots:
+            return False
+        self.ammo[ammo_id] -= 1
+        if self.ammo[ammo_id] <= 0:
+            self.ammo.pop(ammo_id, None)
+        self.loaded_rail[min(free_slots)] = ammo_id
+        return True
+
+    def unload_rail_ammo(self):
+        """Вернуть один заряженный снаряд в трюм."""
+        ready = [index for index in self._railgun_slots()
+                 if index in self.loaded_rail]
+        if not ready:
+            return False
+        ammo_id = self.loaded_rail.pop(min(ready))
+        self.ammo[ammo_id] = self.ammo.get(ammo_id, 0) + 1
+        return True
+
+    def fire_loaded_rail(self):
+        """Достать один заряженный снаряд. Возвращает ammo_id или None."""
+        ready = [index for index in self._railgun_slots()
+                 if index in self.loaded_rail]
+        if not ready:
+            return None
+        return self.loaded_rail.pop(min(ready))
+
+    def _sync_loaded_rail(self):
+        """Вернуть в трюм снаряды из слотов, где рельсотрон больше не стоит."""
+        weapon = self.systems.get("weapon")
+        installed = set()
+        if weapon is not None:
+            installed = {
+                index for index, slot in enumerate(weapon.slots)
+                if slot.part is not None
+                and slot.part.info.get("effects", {}).get("is_railgun")
+            }
+        for index in list(self.loaded_rail):
+            if index not in installed:
+                ammo_id = self.loaded_rail.pop(index)
+                self.ammo[ammo_id] = self.ammo.get(ammo_id, 0) + 1
 
     @property
     def loaded_missile(self):
@@ -580,6 +683,7 @@ class ShipSystems:
             return False
         slot.part = None
         self._sync_loaded_missiles()
+        self._sync_loaded_rail()
         self.recompute_effects()
         return True
 
@@ -601,6 +705,7 @@ class ShipSystems:
         new_part = self.inventory.pop(idx)
         slot.part = new_part
         self._sync_loaded_missiles()
+        self._sync_loaded_rail()
         self.recompute_effects()
         return True
 
@@ -775,6 +880,7 @@ class ShipSystems:
 
         self.systems = updated_systems
         self._sync_loaded_missiles()
+        self._sync_loaded_rail()
         self.recompute_effects()
         self.current_shield = clamp(self.current_shield, 0.0, self.shield_max)
         return True
@@ -1232,6 +1338,10 @@ class ShipSystems:
                 {"slot": index, "ammo_id": missile[0]}
                 for index, missile in sorted(self.loaded_missiles.items())
             ],
+            "loaded_rail": [
+                {"slot": index, "ammo_id": ammo_id}
+                for index, ammo_id in sorted(self.loaded_rail.items())
+            ],
         }
 
     def apply_dict(self, d, station_lookup):
@@ -1451,5 +1561,22 @@ class ShipSystems:
                     legacy_ammo_id, {"damage": 40.0, "speed": 400.0})
                 self.loaded_missiles[launcher_slots[0]] = (
                     legacy_ammo_id, params["damage"], params["speed"])
+
+        self.loaded_rail = {}
+        saved_rail = d.get("loaded_rail", [])
+        if not isinstance(saved_rail, list):
+            saved_rail = []
+        for saved in saved_rail:
+            if not isinstance(saved, dict):
+                continue
+            slot_index = saved.get("slot")
+            ammo_id = saved.get("ammo_id")
+            if (not isinstance(slot_index, int)
+                    or isinstance(slot_index, bool)
+                    or ammo_id not in RAILGUN_AMMO
+                    or slot_index not in self._railgun_slots()
+                    or slot_index in self.loaded_rail):
+                continue
+            self.loaded_rail[slot_index] = ammo_id
 
         self.recompute_effects()

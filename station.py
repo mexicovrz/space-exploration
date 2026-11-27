@@ -802,6 +802,31 @@ class StationNetwork:
         def credits():
             return float(self.systems.money) if self.systems is not None else 0.0
 
+        def take_ammo(item, amount):
+            """Move station-made railgun shells into the player's cargo hold."""
+            from data import AMMO_BY_ID, RAILGUN_AMMO
+            if item not in RAILGUN_AMMO:
+                raise ValueError("unknown railgun ammo: %s" % item)
+            count = int(amount)
+            if count <= 0:
+                raise ValueError("amount must be positive")
+            available = int(float(station.resources.get(item, 0)))
+            take = min(count, available)
+            if take <= 0:
+                raise ValueError("no %s at this station" % item)
+            if self.systems is None:
+                raise ValueError("player cargo is not connected")
+            weight = AMMO_BY_ID[item]["weight"] * take
+            if self.systems.total_weight() + weight > self.systems.cargo_max:
+                raise ValueError("not enough cargo space for %s" % item)
+            left = float(station.resources.get(item, 0)) - take
+            if left > 1e-9:
+                station.resources[item] = left
+            else:
+                station.resources.pop(item, None)
+            self.systems.add_ammo(item, take)
+            return "Loaded %d %s" % (take, item)
+
         return {
             "freighter.build": build_freighter,
             "freighter.available": available_freighters,
@@ -810,6 +835,7 @@ class StationNetwork:
             "freighter.buy": buy_freighter,
             "freighter.send": buy_freighter,
             "player.credits": credits,
+            "player.take_ammo": take_ammo,
             "player.has_credits": lambda amount: (
                 self.systems is not None
                 and self.systems.money >= float(amount)),

@@ -192,6 +192,13 @@ PARTS_DEF = [
      "laser_w", {"weapon_damage": 10.0, "weapon_rate": 0.85,
                  "weapon_chain_damage": 5.0, "weapon_chain_range": 240.0}),
 
+    # Рельсотрон ставится в обычный лазерный слот. Урон наносит не сам модуль,
+    # а заряженный в него снаряд (урон лазера намеренно нулевой).
+    ("railgun_w", "Оружие", "Рельсотрон", 12000, 6.0, 100.0, 0.09,
+     "laser_w", {"is_railgun": 1, "railgun_rate": 1.4}),
+    ("railgun_w_mk2", "Оружие", "Рельсотрон MK2", 28000, 6.8, 100.0, 0.09,
+     "laser_w", {"is_railgun": 1, "railgun_rate": 0.9}),
+
     # ============ ЩИТ ============
     ("shield_gen", "Щит", "Генератор щита", 2000, 3.0, 100.0, 0.05,
      "shield_gen", {"shield_max": 50.0, "shield_regen": 2.0}),
@@ -215,6 +222,8 @@ WEAPON_QUIRKS = {
     "autocannon_w": "Частые выстрелы, небольшой урон",
     "ion_w": "Отключает оружие цели на 1,8 сек.",
     "arc_w": "Цепляет ближайшего пирата: +5 урона",
+    "railgun_w": "Стреляет снарядами из станционной кузницы",
+    "railgun_w_mk2": "Быстрая перезарядка рельсотрона",
 }
 
 # Быстрый доступ
@@ -250,6 +259,33 @@ MISSILE_PARAMS = {
     "missile_light": {"damage": 20.0, "speed": 500.0},
     "missile_ammo":  {"damage": 40.0, "speed": 400.0},
     "missile_heavy": {"damage": 80.0, "speed": 250.0},
+}
+
+# Снаряды рельсотрона. Их id совпадают с выходом "railgun_forge" в station.py.
+# Формат совпадает с AMMO_DEF: (id, имя, цена, вес). Цена не используется
+# магазином NPC: эти боеприпасы производятся только на станции игрока.
+RAIL_AMMO_DEF = [
+    ("railkinetic", "Кинетический снаряд", 0, 1.0),
+    ("railplasma", "Плазменный снаряд", 0, 1.2),
+    ("railpiercer", "Пронзающий снаряд", 0, 1.4),
+    ("rail_nuclear", "Ядерный снаряд", 0, 2.5),
+]
+
+# damage — прямой урон, pierce — сколько кораблей пробивает снаряд,
+# blast_radius — радиус взрыва, emp_duration — время отключения оружия.
+RAILGUN_AMMO = {
+    "railkinetic": {"damage": 70.0, "speed": 900.0, "pierce": 1,
+                    "blast_radius": 0.0, "emp_duration": 0.0,
+                    "color": (255, 220, 90)},
+    "railplasma": {"damage": 105.0, "speed": 760.0, "pierce": 1,
+                   "blast_radius": 90.0, "emp_duration": 0.0,
+                   "color": (90, 210, 255)},
+    "railpiercer": {"damage": 130.0, "speed": 1200.0, "pierce": 3,
+                    "blast_radius": 0.0, "emp_duration": 0.0,
+                    "color": (235, 240, 255)},
+    "rail_nuclear": {"damage": 380.0, "speed": 600.0, "pierce": 1,
+                     "blast_radius": 320.0, "emp_duration": 4.0,
+                     "nuclear": True, "color": (180, 255, 90)},
 }
 
 MINE_PRICE = 1200
@@ -517,3 +553,12 @@ AMMO_BY_ID = {row[0]: {
     "price": row[2],
     "weight": row[3],
 } for row in AMMO_DEF}
+
+# Рельсовые снаряды тоже являются боеприпасами: они сохраняются в сейве и
+# учитываются в весе трюма, но не продаются в обычном магазине.
+AMMO_BY_ID.update({row[0]: {
+    "id": row[0],
+    "name": row[1],
+    "price": row[2],
+    "weight": row[3],
+} for row in RAIL_AMMO_DEF})

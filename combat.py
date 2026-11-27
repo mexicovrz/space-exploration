@@ -52,6 +52,42 @@ def add_hit_flash(from_pos, to_pos, color=(255, 240, 100)):
     effects.append(HitFlash(from_pos, to_pos, color))
 
 
+class RailBlast:
+    """Вспышка взрыва снаряда рельсотрона (в том числе ядерного)."""
+
+    def __init__(self, pos, radius, color=(180, 255, 90), life=0.5):
+        self.pos = list(pos)
+        self.radius = float(radius)
+        self.color = color
+        self.life = life
+        self.max_life = life
+
+    def update(self, dt):
+        self.life -= dt
+        return self.life > 0
+
+    def draw(self, surface, camera):
+        if self.life <= 0:
+            return
+        import pygame
+        progress = 1.0 - self.life / self.max_life
+        radius = self.radius * (0.35 + 0.65 * progress)
+        alpha = max(0.0, self.life / self.max_life)
+        sx, sy = camera.world_to_screen(self.pos)
+        color = tuple(int(channel * (0.35 + 0.65 * alpha))
+                      for channel in self.color)
+        r = max(2, int(radius * camera.zoom))
+        pygame.draw.circle(surface, color, (int(sx), int(sy)), r,
+                           max(1, int(3 * camera.zoom)))
+        pygame.draw.circle(surface, tuple(int(c * alpha) for c in (255, 255, 220)),
+                           (int(sx), int(sy)), max(1, int(r * 0.35)))
+
+
+def add_explosion(pos, radius, color=(180, 255, 90), life=0.5):
+    if radius > 0:
+        effects.append(RailBlast(pos, radius, color, life))
+
+
 def update_effects(dt):
     global effects
     effects = [e for e in effects if e.update(dt)]
@@ -85,6 +121,77 @@ def can_hit(shooter_pos, shooter_heading, target_pos, radius, arc=None):
     if dist > radius:
         return False, dist
     return True, dist
+
+
+def fire_railgun(shooter_pos, target, ammo_id, npcs=None):
+    """Выстрел рельсотрона. Возвращает список уничтоженных кораблей.
+
+    Снаряд наносит прямой урон, пробивает несколько целей и/или взрывается
+    радиусом, а также может временно отключить оружие противника (EMP).
+    """
+    from data import RAILGUN_AMMO
+    params = RAILGUN_AMMO.get(ammo_id)
+    if params is None or target is None or getattr(target, "dead", False):
+        return []
+
+    color = params.get("color", (255, 220, 90))
+    add_hit_flash(shooter_pos, target.pos, color)
+    blast_radius = float(params.get("blast_radius", 0) or 0)
+    if blast_radius > 0:
+        add_explosion(target.pos, blast_radius, color)
+
+    hit_targets = [target]
+    pierce = max(1, int(params.get("pierce", 1)))
+    all_npcs = list(npcs or [])
+    if pierce > 1:
+        dx = target.pos[0] - shooter_pos[0]
+        dy = target.pos[1] - shooter_pos[1]
+        length = math.hypot(dx, dy) or 1.0
+        ux, uy = dx / length, dy / length
+        behind = []
+        for npc in all_npcs:
+            if npc is target or getattr(npc, "dead", False):
+                continue
+            pos = getattr(npc, "pos", None)
+            if pos is None:
+                continue
+            rx = pos[0] - shooter_pos[0]
+            ry = pos[1] - shooter_pos[1]
+            along = rx * ux + ry * uy
+            offset = abs(rx * uy - ry * ux)
+            if 0 < along <= length + 240.0 and offset <= 70.0:
+                behind.append((along, npc))
+        behind.sort(key=lambda pair: pair[0])
+        hit_targets.extend(npc for _, npc in behind[:pierce - 1])
+
+    killed = []
+    emp_duration = float(params.get("emp_duration", 0) or 0)
+    damaged = set()
+    for npc in hit_targets:
+        damaged.add(id(npc))
+        if npc.take_damage(params["damage"]):
+            killed.append(npc)
+        if emp_duration > 0 and hasattr(npc, "apply_emp"):
+            npc.apply_emp(emp_duration)
+
+    if blast_radius > 0:
+        for npc in all_npcs:
+            if id(npc) in damaged or getattr(npc, "dead", False):
+                continue
+            pos = getattr(npc, "pos", None)
+            if pos is None:
+                continue
+            distance = math.hypot(pos[0] - target.pos[0],
+                                  pos[1] - target.pos[1])
+            if distance > blast_radius:
+                continue
+            falloff = 1.0 - 0.4 * (distance / blast_radius)
+            if npc.take_damage(params["damage"] * 0.55 * falloff):
+                killed.append(npc)
+            if emp_duration > 0 and hasattr(npc, "apply_emp"):
+                npc.apply_emp(emp_duration)
+
+    return killed
 
 
 class Mine:

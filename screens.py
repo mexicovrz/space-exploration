@@ -88,6 +88,11 @@ class PlayerStationScreen:
         self.script_editor_rect = pygame.Rect(0, 0, 0, 0)
         self.script_output_rect = pygame.Rect(0, 0, 0, 0)
         self.script_button_rect = pygame.Rect(S(740), S(54), S(160), S(50))
+        self.ammo_button_rect = pygame.Rect(S(910), S(54), S(160), S(50))
+        self.ammo_back_button = Button(
+            (S(60), S(720), S(200), S(60)), translate("Назад"),
+            self._leave_ammo_view, font_size=24)
+        self.ammo_take_buttons = []
         self.script_toolbar = {}
 
     def close(self):
@@ -143,6 +148,69 @@ class PlayerStationScreen:
         self.view = "manager"
         self.help_drag = False
         self._stop_text_input()
+
+    def _enter_ammo_view(self):
+        if self.selected_station() is None:
+            return
+        self.view = "ammo"
+        self.action_message = ""
+        self._build_ammo_take_buttons()
+
+    def _leave_ammo_view(self):
+        self.view = "manager"
+
+    def _build_ammo_take_buttons(self):
+        from data import RAIL_AMMO_DEF
+        self.ammo_take_buttons = {}
+        for aid, name, price, weight in RAIL_AMMO_DEF:
+            self.ammo_take_buttons[aid] = [
+                Button((S(880), S(0), S(110), S(46)), translate("Взять 1"),
+                       lambda a=aid: self.take_station_ammo(a, 1), font_size=19),
+                Button((S(1000), S(0), S(110), S(46)), translate("Взять 5"),
+                       lambda a=aid: self.take_station_ammo(a, 5), font_size=19),
+                Button((S(1120), S(0), S(110), S(46)), translate("Взять всё"),
+                       lambda a=aid: self.take_station_ammo(a, -1), font_size=19),
+            ]
+
+    def take_station_ammo(self, ammo_id, count):
+        """Перенести произведённые станцией снаряды в трюм корабля."""
+        from data import AMMO_BY_ID, RAILGUN_AMMO
+        station = self.selected_station()
+        if station is None or ammo_id not in RAILGUN_AMMO:
+            return
+        available = int(float(station.resources.get(ammo_id, 0)))
+        take = available if count < 0 else min(int(count), available)
+        if take <= 0:
+            self.action_message = translate("На станции нет таких боеприпасов")
+            if self.state:
+                self.state.notify(self.action_message)
+            return
+        weight = AMMO_BY_ID[ammo_id]["weight"] * take
+        if self.systems.total_weight() + weight > self.systems.cargo_max:
+            self.action_message = translate("Недостаточно места в трюме")
+            if self.state:
+                self.state.notify(self.action_message)
+            return
+        left = float(station.resources.get(ammo_id, 0)) - take
+        if left > 1e-9:
+            station.resources[ammo_id] = left
+        else:
+            station.resources.pop(ammo_id, None)
+        self.systems.add_ammo(ammo_id, take)
+        name = AMMO_BY_ID[ammo_id]["name"]
+        self.action_message = translate("Взято:") + f" {take} {translate(name)}"
+        if self.state:
+            self.state.notify(self.action_message)
+
+    def _handle_ammo_event(self, event):
+        if self.close_button.handle_event(event):
+            return
+        if self.ammo_back_button.handle_event(event):
+            return
+        for buttons in self.ammo_take_buttons.values():
+            for button in buttons:
+                if button.handle_event(event):
+                    return
 
     def _edit_script(self, text):
         station = self.selected_station()
@@ -462,8 +530,15 @@ class PlayerStationScreen:
             self._handle_script_event(event)
             return
 
+        if self.view == "ammo":
+            self._handle_ammo_event(event)
+            return
+
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = event.pos
+            if self.selected_station() and self.ammo_button_rect.collidepoint(mx, my):
+                self._enter_ammo_view()
+                return
             if self.selected_station() and self.script_button_rect.collidepoint(mx, my):
                 self._enter_script_view()
                 return
@@ -621,6 +696,58 @@ class PlayerStationScreen:
                          (self.script_output_rect.x + S(10),
                           self.script_output_rect.y + S(38) + index * S(24)))
 
+    def _draw_ammo_view(self, surface, panel):
+        from data import AMMO_BY_ID, RAIL_AMMO_DEF, RAILGUN_AMMO
+        station = self.selected_station()
+        if station is None:
+            draw_text(surface, translate("Станция не выбрана"),
+                      (panel.x + S(24), panel.y + S(80)),
+                      size=24, color=UI_WARN)
+            return
+
+        draw_text(surface, translate("Боеприпасы станции") + ": " + station.name,
+                  (panel.x + S(20), panel.y + S(14)),
+                  size=28, color=UI_ACCENT)
+        draw_text(surface,
+                  translate("Произведено кузницей рельсовых боеприпасов"),
+                  (panel.x + S(20), panel.y + S(58)),
+                  size=18, color=UI_DIM)
+        draw_text(surface, translate("Название"), (S(80), S(140)),
+                  size=18, color=UI_WARN)
+        draw_text(surface, translate("На станции"), (S(520), S(140)),
+                  size=18, color=UI_WARN)
+        draw_text(surface, translate("В трюме"), (S(700), S(140)),
+                  size=18, color=UI_WARN)
+
+        for index, (aid, name, price, weight) in enumerate(RAIL_AMMO_DEF):
+            y = S(190) + index * S(105)
+            made = int(float(station.resources.get(aid, 0)))
+            cargo = int(self.systems.ammo.get(aid, 0))
+            params = RAILGUN_AMMO.get(aid, {})
+            pygame.draw.rect(surface, (28, 34, 52),
+                             (S(60), y, S(1150), S(90)), border_radius=S(8))
+            color = (180, 255, 90) if aid == "rail_nuclear" else UI_TEXT
+            draw_text(surface, translate(name), (S(80), y + S(12)),
+                      size=22, color=color)
+            draw_text(surface,
+                      f"{params.get('damage', 0):g} урона, "
+                      f"радиус {params.get('blast_radius', 0):g}",
+                      (S(80), y + S(52)), size=16, color=UI_DIM)
+            draw_text(surface, f"x{made}", (S(520), y + S(28)),
+                      size=22, color=UI_OK if made else UI_DIM)
+            draw_text(surface, f"x{cargo}", (S(700), y + S(28)),
+                      size=22, color=UI_ACCENT if cargo else UI_DIM)
+            for button in self.ammo_take_buttons.get(aid, ()):
+                button.rect.y = y + S(20)
+                button.color = UI_PANEL if made > 0 else (45, 50, 65)
+                button.draw(surface)
+
+        if self.action_message:
+            draw_text(surface, self.action_message,
+                      (S(320), S(738)), size=20, color=UI_WARN)
+        self.ammo_back_button.draw(surface)
+        self.close_button.draw(surface)
+
     def draw(self, surface, screen_w, screen_h):
         from station import MATERIALS, MODULES
         overlay = pygame.Surface((screen_w, screen_h))
@@ -630,7 +757,7 @@ class PlayerStationScreen:
 
         panel = pygame.Rect(S(40), S(40), screen_w - S(80), screen_h - S(80))
         draw_panel(surface, panel)
-        if self.view != "script":
+        if self.view not in ("script", "ammo"):
             draw_text(surface, translate("Мои станции"),
                       (panel.x + S(20), panel.y + S(14)),
                       size=32, color=UI_ACCENT)
@@ -638,6 +765,10 @@ class PlayerStationScreen:
         if self.view == "script":
             self._draw_script_view(surface, panel, screen_w, screen_h)
             self.close_button.draw(surface)
+            return
+
+        if self.view == "ammo":
+            self._draw_ammo_view(surface, panel)
             return
 
         if not self.network.stations:
@@ -666,6 +797,11 @@ class PlayerStationScreen:
                                  border_radius=S(6))
                 draw_text(surface, translate("Скрипт"),
                           self.script_button_rect.center,
+                          size=20, color=UI_TEXT, center=True)
+                pygame.draw.rect(surface, UI_BORDER, self.ammo_button_rect,
+                                 border_radius=S(6))
+                draw_text(surface, translate("Боеприпасы"),
+                          self.ammo_button_rect.center,
                           size=20, color=UI_TEXT, center=True)
                 y = panel.y + S(110)
                 actions = [("Хаб", self.build_hub)]
@@ -3531,8 +3667,10 @@ class LoadMissileScreen:
         self.on_deploy_mine = on_deploy_mine
         self.active = False
 
-        from data import AMMO_DEF
-        self.ammo_list = AMMO_DEF
+        from data import AMMO_DEF, RAIL_AMMO_DEF
+        self.ammo_list = AMMO_DEF + RAIL_AMMO_DEF
+        self.ammo_row_y = S(196)
+        self.ammo_row_gap = S(56)
 
         self.close_button = Button(
             (S(60), S(720), S(200), S(60)),
@@ -3548,15 +3686,13 @@ class LoadMissileScreen:
     def _build_buttons(self):
         self.load_buttons = []
         w = S(240)
-        h = S(60)
+        h = S(44)
         x = S(900)
-        y = S(250)
-        gap = S(80)
         for i, row in enumerate(self.ammo_list):
             aid = row[0]
             cb = (lambda a=aid: self.load_ammo(a))
-            btn = Button((x, y + i * gap, w, h),
-                         "Зарядить", cb, font_size=22)
+            btn = Button((x, self.ammo_row_y + i * self.ammo_row_gap,
+                          w, h), "Зарядить", cb, font_size=21)
             self.load_buttons.append(btn)
 
     def open(self):
@@ -3567,14 +3703,19 @@ class LoadMissileScreen:
         self.on_close()
 
     def load_ammo(self, ammo_id):
-        ok = self.systems.load_missile(ammo_id)
+        from data import AMMO_BY_ID, RAILGUN_AMMO
+        if ammo_id in RAILGUN_AMMO:
+            ok = self.systems.load_rail_ammo(ammo_id)
+            default_name = "Снаряд"
+        else:
+            ok = self.systems.load_missile(ammo_id)
+            default_name = "Ракета"
         if ok:
             if self.state:
-                from data import AMMO_BY_ID
-                name = AMMO_BY_ID.get(ammo_id, {}).get("name", "Ракета")
+                name = AMMO_BY_ID.get(ammo_id, {}).get("name", default_name)
                 self.state.notify(f"Заряжено: {name}")
         elif self.state:
-            self.state.notify("Нет свободной ракетницы или ракет")
+            self.state.notify("Нет свободной установки или боеприпасов")
 
     def deploy_mine(self):
         if self.on_deploy_mine is not None:
@@ -3633,7 +3774,7 @@ class LoadMissileScreen:
                 return
 
     def draw(self, surface, screen_w, screen_h):
-        from data import AMMO_BY_ID
+        from data import AMMO_BY_ID, MISSILE_PARAMS, RAILGUN_AMMO
         overlay = pygame.Surface((screen_w, screen_h))
         overlay.set_alpha(200)
         overlay.fill((8, 10, 22))
@@ -3642,52 +3783,64 @@ class LoadMissileScreen:
         panel = pygame.Rect(S(40), S(60), screen_w - S(80), screen_h - S(120))
         draw_panel(surface, panel)
 
-        draw_text(surface, "ЗАРЯЖАНИЕ РАКЕТЫ",
+        draw_text(surface, "ЗАРЯЖАНИЕ ОРУЖИЯ",
                   (panel.x + S(20), panel.y + S(14)),
                   size=32, color=UI_ACCENT)
 
-        # Текущая заряженная
-        if self.systems.loaded_missile_count:
-            draw_text(
-                surface,
-                f"Заряжено ракет: {self.systems.loaded_missile_count} / "
-                f"{self.systems.launcher_count}",
-                (panel.x + S(20), panel.y + S(60)),
-                size=24, color=UI_OK)
-        else:
-            draw_text(surface, f"Заряжено ракет: 0 / {self.systems.launcher_count}",
-                      (panel.x + S(20), panel.y + S(60)),
-                      size=24, color=UI_DIM)
+        loaded_missiles = self.systems.loaded_missile_count
+        loaded_rail = self.systems.loaded_rail_count
+        draw_text(surface,
+                  f"Ракеты: {loaded_missiles} / {self.systems.launcher_count}",
+                  (panel.x + S(20), panel.y + S(56)),
+                  size=22, color=UI_OK if loaded_missiles else UI_DIM)
+        draw_text(surface,
+                  f"Снаряды: {loaded_rail} / {self.systems.railgun_count}",
+                  (panel.x + S(20), panel.y + S(88)),
+                  size=22,
+                  color=UI_OK if loaded_rail else (
+                      UI_DIM if not self.systems.has_railgun else UI_WARN))
 
-        # Список ракет в трюме
-        y = S(250)
+        header_y = S(168)
+        draw_text(surface, "Название", (S(80), header_y),
+                  size=18, color=UI_WARN)
+        draw_text(surface, "Урон", (S(430), header_y),
+                  size=18, color=UI_WARN)
+        draw_text(surface, "В трюме", (S(620), header_y),
+                  size=18, color=UI_WARN)
+        draw_text(surface, "Тип", (S(760), header_y),
+                  size=18, color=UI_WARN)
+
         for i, row in enumerate(self.ammo_list):
             aid, name, price, weight = row
             have = self.systems.ammo.get(aid, 0)
-            from data import MISSILE_PARAMS
-            params = MISSILE_PARAMS.get(aid, {"damage": 40})
-            dmg = int(params["damage"])
-
+            is_rail = aid in RAILGUN_AMMO
+            params = (RAILGUN_AMMO.get(aid) if is_rail
+                      else MISSILE_PARAMS.get(aid))
+            dmg = int(params["damage"]) if params else 0
+            can_load = ((self.systems.can_load_rail if is_rail
+                         else self.systems.can_load_missile) and have > 0)
             color = UI_TEXT if have > 0 else UI_DIM
+            y = self.ammo_row_y + i * self.ammo_row_gap
 
-            draw_text(surface, name, (S(80), y + S(10)),
-                      size=22, color=color)
-            draw_text(surface, f"Урон: {dmg}", (S(450), y + S(10)),
+            pygame.draw.rect(surface, (28, 34, 52),
+                             (S(60), y - S(6), S(1150), S(50)),
+                             border_radius=S(6))
+            draw_text(surface, name, (S(80), y), size=20,
+                      color=(180, 255, 90) if aid == "rail_nuclear" else color)
+            draw_text(surface, f"{dmg}", (S(430), y),
                       size=20, color=color)
-            draw_text(surface, f"Ракеты: x{have}",
-                      (S(650), y + S(10)),
+            draw_text(surface, f"x{have}", (S(620), y),
                       size=20, color=UI_ACCENT if have > 0 else color)
+            draw_text(surface, "Снаряд" if is_rail else "Ракета",
+                      (S(760), y), size=18, color=color)
 
-            # Кнопка — только если есть ракеты
-            if have > 0 and self.systems.can_load_missile:
-                btn = self.load_buttons[i]
-                btn.rect = pygame.Rect(S(900), y, S(240), S(60))
-                btn.draw(surface)
-
-            y += S(80)
+            btn = self.load_buttons[i]
+            btn.rect = pygame.Rect(S(900), y - S(4), S(240), S(44))
+            btn.color = UI_PANEL if can_load else (45, 50, 65)
+            btn.draw(surface)
 
         draw_text(surface, f"Мины в трюме: x{self.systems.mine_count}",
-                  (S(80), S(540)), size=22,
+                  (S(80), S(620)), size=22,
                   color=UI_ACCENT if self.systems.mine_count else UI_DIM)
         self.deploy_mine_button.text = translate("Сбросить мину")
         self.deploy_mine_button.draw(surface)

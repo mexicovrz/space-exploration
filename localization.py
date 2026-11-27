@@ -88,6 +88,33 @@ _PAIRS = """
 Охлаждающая жидкость	Coolant
 Прочный сплав	Advanced alloy
 Боеприпасы	Ammunition
+Боеприпасы станции	Station ammunition
+Произведено кузницей рельсовых боеприпасов	Produced by the railgun ammunition forge
+Взять 1	Take 1
+Взять 5	Take 5
+Взять всё	Take all
+Взято:	Taken:
+На станции нет таких боеприпасов	No such ammunition at the station
+На станции	At station
+Рельсотрон	Railgun
+Рельсотрон MK2	Railgun MK2
+Стреляет снарядами из станционной кузницы	Fires shells made at your station
+Быстрая перезарядка рельсотрона	Fast railgun reload
+Кинетический снаряд	Kinetic slug
+Плазменный снаряд	Plasma slug
+Пронзающий снаряд	Piercing slug
+Ядерный снаряд	Nuclear slug
+ЗАРЯЖАНИЕ ОРУЖИЯ	WEAPON LOADING
+Заряжено ракет:	Missiles loaded:
+Заряжено снарядов:	Shells loaded:
+Снаряд	Shell
+Снаряды:	Shells:
+Снарядов в трюме:	Shells in cargo:
+ЯДЕРНЫЙ ЗАРЯД:	NUCLEAR SHELL:
+СНАРЯД:	SHELL:
+Выстрел:	Shot:
+Ядерный залп:	Nuclear volley:
+Нет свободной установки или боеприпасов	No free weapon slot or ammunition
 Продать весь хлам	Sell All Scrap
 Продать все трофеи	Sell All Valuables
 РЕМОНТ	REPAIR

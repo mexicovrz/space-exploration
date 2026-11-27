@@ -379,6 +379,7 @@ player_station_screen = None
 player_target = None
 player_fire_timer = 0.0
 missile_timer = 0.0
+rail_fire_timer = 0.0
 last_convoy_tap = (None, 0)
 
 # Прыжок
@@ -1320,28 +1321,38 @@ def draw_ship_panel():
                          (bar.x, bar.y, fill, bar.h), border_radius=S(4))
         y += S(48)
 
-    # Ракета заряжена?
-    if systems.has_launcher:
-        if systems.loaded_missile is not None:
-            aid, dmg, spd = systems.loaded_missile
-            from data import AMMO_BY_ID
-            name = AMMO_BY_ID.get(aid, {}).get("name", "Ракета")
-            y_rocket = rect.bottom + S(8)
-            if player_target is not None and not player_target.dead:
-                y_rocket += S(90)
-            draw_text(screen, f"ЗАРЯЖЕНО: {name}",
-                      (rect.x + S(14), y_rocket),
-                      size=20, color=UI_OK)
-        else:
-            # Показать количество ракет в трюме
-            total = sum(systems.ammo.values())
-            if total > 0:
-                y_rocket = rect.bottom + S(8)
-                if player_target is not None and not player_target.dead:
-                    y_rocket += S(90)
-                draw_text(screen, f"Ракет в трюме: {total} (нажми ЗАРЯД)",
-                          (rect.x + S(14), y_rocket),
-                          size=18, color=UI_WARN)
+    # Ракета / снаряд рельсотрона заряжены?
+    from data import AMMO_BY_ID, MISSILE_PARAMS, RAILGUN_AMMO
+    y_ammo = rect.bottom + S(8)
+    if player_target is not None and not player_target.dead:
+        y_ammo += S(90)
+    if systems.has_launcher and systems.loaded_missile is not None:
+        aid = systems.loaded_missile[0]
+        name = AMMO_BY_ID.get(aid, {}).get("name", "Ракета")
+        draw_text(screen, f"ЗАРЯЖЕНО: {name}",
+                  (rect.x + S(14), y_ammo), size=20, color=UI_OK)
+        y_ammo += S(28)
+    if systems.has_railgun and systems.loaded_rail:
+        aid = systems.loaded_rail[min(systems.loaded_rail)]
+        name = AMMO_BY_ID.get(aid, {}).get("name", "Снаряд")
+        color = (180, 255, 90) if aid == "rail_nuclear" else UI_OK
+        label = "ЯДЕРНЫЙ ЗАРЯД: " if aid == "rail_nuclear" else "СНАРЯД: "
+        draw_text(screen, label + name,
+                  (rect.x + S(14), y_ammo), size=20, color=color)
+        y_ammo += S(28)
+    if systems.has_launcher and systems.loaded_missile is None:
+        missile_total = sum(count for aid, count in systems.ammo.items()
+                            if aid in MISSILE_PARAMS)
+        if missile_total > 0:
+            draw_text(screen, f"Ракет в трюме: {missile_total} (нажми ЗАРЯД)",
+                      (rect.x + S(14), y_ammo), size=18, color=UI_WARN)
+            y_ammo += S(26)
+    if systems.has_railgun and not systems.has_loaded_rail:
+        rail_total = sum(count for aid, count in systems.ammo.items()
+                         if aid in RAILGUN_AMMO)
+        if rail_total > 0:
+            draw_text(screen, f"Снарядов в трюме: {rail_total} (нажми ЗАРЯД)",
+                      (rect.x + S(14), y_ammo), size=18, color=UI_WARN)
 
     from data import SYSTEM_NAMES
     for sid in ("engine", "reactor", "o2gen", "hull"):
@@ -1703,7 +1714,7 @@ def game_over():
 def main():
     global station_screen, repair_screen, contracts_screen, galaxy_map_screen
     global story_screen
-    global player_target, player_fire_timer, missile_timer
+    global player_target, player_fire_timer, missile_timer, rail_fire_timer
     global confirm_attack_screen
     global inventory_screen
     global prologue_screen
@@ -2003,6 +2014,7 @@ def main():
             # Weapon cooldowns keep progressing while the target is out of
             # range, so reacquiring a target does not freeze a railgun shot.
             player_fire_timer = max(0.0, player_fire_timer - scaled_dt)
+            rail_fire_timer = max(0.0, rail_fire_timer - scaled_dt)
 
             if not engines_ok and has_target:
                 ship.stop()
@@ -2042,6 +2054,32 @@ def main():
                             combat.spawn_missile(
                             ship.pos, player_target, dmg, spd)
                             state.notify("Ракета пущена!")
+
+                # --- Рельсотрон ---
+                if (systems.has_railgun and systems.has_loaded_rail
+                        and rail_fire_timer <= 0
+                        and not player_target.dead):
+                    ok_rail, _ = combat.can_hit(
+                        ship.pos, ship.heading, player_target.pos,
+                        systems.railgun_range)
+                    if ok_rail:
+                        ammo_id = systems.fire_loaded_rail()
+                        if ammo_id is not None:
+                            from data import AMMO_BY_ID, RAILGUN_AMMO
+                            name = AMMO_BY_ID.get(ammo_id, {}).get(
+                                "name", "Снаряд")
+                            killed = combat.fire_railgun(
+                                ship.pos, player_target, ammo_id, sector.npcs)
+                            rail_fire_timer = max(0.2, systems.railgun_rate)
+                            if RAILGUN_AMMO.get(ammo_id, {}).get("nuclear"):
+                                state.notify(f"Ядерный залп: {name}!")
+                            else:
+                                state.notify(f"Выстрел: {name}")
+                            for npc in killed:
+                                if npc is player_target:
+                                    continue
+                                state.notify(f"{npc.name} уничтожен")
+                                combat.drop_debris(npc)
 
                 if player_target.dead:
                     state.notify(f"{player_target.name} уничтожен")
