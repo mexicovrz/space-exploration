@@ -34,6 +34,13 @@ _SAFE_BUILTINS = {
     "len": len, "max": max, "min": min, "round": round,
     "str": str, "sum": sum,
 }
+# Shell names can be written bare, e.g. produce_railgun_ammo(nuclear).
+_SHELL_NAME_CONSTANTS = {
+    name: name for name in (
+        "kinetic", "plasma", "piercer", "nuclear",
+        "railkinetic", "railplasma", "railpiercer", "rail_nuclear",
+    )
+}
 _EVENT_NAMES = {"tick", "low_energy", "project_complete", "ship_complete"}
 _EVENT_LINE = re.compile(r"^on\s+([a-z][a-z0-9_]*)\s*:\s*(?:#.*)?$")
 _LEGACY_CALLS = {
@@ -54,6 +61,7 @@ _LEGACY_CALLS = {
     "buy_freighter": "freighter.buy",
     "send_freighter": "freighter.send",
     "credits": "player.credits",
+    "produce_railgun_ammo": "station.produce_railgun_ammo",
 }
 
 
@@ -118,6 +126,8 @@ def run_station_script(source, api, output=None, instruction_limit=2000,
         if isinstance(node, ast.Name):
             if node.id in variables:
                 return variables[node.id]
+            if node.id in _SHELL_NAME_CONSTANTS:
+                return _SHELL_NAME_CONSTANTS[node.id]
             if node.id in ("True", "False", "None"):
                 return {"True": True, "False": False, "None": None}[node.id]
             raise StationScriptError("unknown name: %s" % node.id)

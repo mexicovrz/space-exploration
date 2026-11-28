@@ -118,5 +118,62 @@ class RailgunStationTests(unittest.TestCase):
         self.assertAlmostEqual(station.resources["rail_nuclear"], 1)
 
 
+class RailgunScriptProductionTests(unittest.TestCase):
+    FORGE_COST = {"scrap_metal": 75, "scrap_plate": 50,
+                  "electronics": 37.5, "rail_core": 12.5,
+                  "propellant": 25}
+
+    def _forge_station(self):
+        station = Station("Forge")
+        station.has_hub = True
+        station.modules = [
+            {"id": "forge", "type": "railgun_forge", "priority": 5,
+             "operational": True},
+        ]
+        for item, amount in self.FORGE_COST.items():
+            station.add_resources(item, amount)
+        return station
+
+    def test_produce_railgun_ammo_consumes_scaled_recipe(self):
+        station = self._forge_station()
+
+        self.assertEqual(station.produce_railgun_ammo("nuclear"), 1)
+
+        self.assertAlmostEqual(station.resources.get("rail_nuclear", 0), 1.0)
+        for item in self.FORGE_COST:
+            self.assertAlmostEqual(station.resources.get(item, 0), 0.0)
+
+    def test_script_can_call_bare_produce_railgun_ammo(self):
+        station = self._forge_station()
+        station.script = 'produce_railgun_ammo("nuclear")'
+        network = StationNetwork([station])
+
+        ok, message = network.run_script(station.id)
+
+        self.assertTrue(ok, message)
+        self.assertAlmostEqual(station.resources.get("rail_nuclear", 0), 1.0)
+
+    def test_script_accepts_unquoted_shell_name(self):
+        station = self._forge_station()
+        station.script = 'produce_railgun_ammo(nuclear)'
+        network = StationNetwork([station])
+
+        ok, message = network.run_script(station.id)
+
+        self.assertTrue(ok, message)
+        self.assertAlmostEqual(station.resources.get("rail_nuclear", 0), 1.0)
+
+    def test_production_requires_forge_and_materials(self):
+        station = self._forge_station()
+        station.modules = []
+
+        with self.assertRaisesRegex(ValueError, "railgun_forge"):
+            station.produce_railgun_ammo("railkinetic")
+
+        station = self._forge_station()
+        with self.assertRaisesRegex(ValueError, "not enough resources"):
+            station.produce_railgun_ammo("rail_nuclear", 2)
+
+
 if __name__ == "__main__":
     unittest.main()

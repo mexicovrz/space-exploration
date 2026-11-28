@@ -151,6 +151,14 @@ MODULES = {
                           "railpiercer": 0.35, "rail_nuclear": 0.08}),
 }
 
+# Friendly names accepted by station.produce_railgun_ammo().
+_RAIL_AMMO_ALIASES = {
+    "kinetic": "railkinetic",
+    "plasma": "railplasma",
+    "piercer": "railpiercer",
+    "nuclear": "rail_nuclear",
+}
+
 
 class Station:
     """One player-owned station and its serialized construction/power state."""
@@ -405,6 +413,7 @@ class Station:
             "station.offline_count": lambda: self.energy_status["offline"],
             "station.last_completed_project": lambda: self.last_completed_project,
             "station.last_completed_ship": lambda: self.last_completed_ship,
+            "station.produce_railgun_ammo": self.produce_railgun_ammo,
             "station.log": log,
         }
 
@@ -564,6 +573,57 @@ class Station:
                 produced = rate * hours * run_fraction
                 if produced:
                     self.resources[item] = float(self.resources.get(item, 0)) + produced
+
+    def produce_railgun_ammo(self, shell, amount=1):
+        """Craft railgun shells immediately from a powered railgun forge.
+
+        Input costs are scaled from the forge's hourly recipe, so scripting a
+        batch costs the same materials as waiting for production. Accepts the
+        full shell ids (railkinetic, railplasma, railpiercer, rail_nuclear) or
+        the short names kinetic/plasma/piercer/nuclear.
+        """
+        from data import RAILGUN_AMMO
+
+        name = str(shell).strip().lower()
+        shell_id = _RAIL_AMMO_ALIASES.get(name, name)
+        if shell_id not in RAILGUN_AMMO:
+            raise ValueError("unknown railgun ammo: %s" % shell)
+
+        count = int(amount)
+        if count <= 0:
+            raise ValueError("amount must be positive")
+        if count > 100:
+            raise ValueError("amount is limited to 100 shells per call")
+        if not self.has_hub:
+            raise ValueError("station hub is required")
+        forge = MODULES.get("railgun_forge")
+        if forge is None or not any(
+                module.get("type") == "railgun_forge"
+                and module.get("operational", True)
+                for module in self.modules):
+            raise ValueError("an operational railgun_forge is required")
+
+        output_rate = float(forge.outputs_per_hour.get(shell_id, 0.0))
+        if output_rate <= 0:
+            raise ValueError("%s is not produced by the forge" % shell_id)
+        costs = {item: float(rate) * count / output_rate
+                 for item, rate in (forge.inputs_per_hour or {}).items()
+                 if rate > 0}
+        missing = ["%s: %g" % (item, need - float(self.resources.get(item, 0)))
+                   for item, need in costs.items()
+                   if float(self.resources.get(item, 0)) + 1e-9 < need]
+        if missing:
+            raise ValueError("not enough resources to produce shells (" +
+                             ", ".join(missing) + ")")
+
+        for item, need in costs.items():
+            remaining = max(0.0, float(self.resources.get(item, 0)) - need)
+            if remaining > 1e-9:
+                self.resources[item] = remaining
+            else:
+                self.resources.pop(item, None)
+        self.resources[shell_id] = float(self.resources.get(shell_id, 0)) + count
+        return count
 
     def production_rates(self, operational_only=True):
         """Return aggregate resource input/output rates in units per hour."""
